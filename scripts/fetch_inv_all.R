@@ -10,6 +10,88 @@
 
 source("scripts/inv_source_contract.R", local = TRUE)
 
+INV_NEON_AUTH_CHECK_URL <- paste0(
+  "https://data.neonscience.org/api/v0/data/query?",
+  "productCode=DP1.10003.001&siteCode=BART&",
+  "startDateMonth=2023-01&endDateMonth=2023-12&",
+  "release=RELEASE-2025"
+)
+INV_NEON_AUTH_ATTEMPTS <- 4L
+INV_NEON_AUTH_BACKOFF_SECONDS <- c(2, 4, 8)
+
+inv_redact_transport_message <- function(message, token) {
+  message <- paste(as.character(message), collapse = " ")
+  if (nzchar(token)) {
+    message <- gsub(token, "<redacted>", message, fixed = TRUE)
+  }
+  message
+}
+
+inv_neon_auth_preflight <- function(token, request = NULL,
+                                    sleep = Sys.sleep) {
+  inv_assert(length(token) == 1L && !is.na(token) && nzchar(token),
+             "NEON_TOKEN is required for the authentication preflight")
+  if (is.null(request)) {
+    inv_assert(requireNamespace("httr", quietly = TRUE),
+               "httr is required for the NEON API authentication preflight")
+    request <- function(url, secret) {
+      httr::GET(
+        url,
+        httr::user_agent("NEON-My-Little-Inverts/RELEASE-2026"),
+        httr::add_headers(.headers = c(
+          "X-API-Token" = secret, "accept" = "application/json"
+        )),
+        httr::timeout(30)
+      )
+    }
+  }
+  last_transport <- "no HTTP response"
+  for (attempt in seq_len(INV_NEON_AUTH_ATTEMPTS)) {
+    response <- tryCatch(
+      request(INV_NEON_AUTH_CHECK_URL, token),
+      error = function(error) error
+    )
+    if (inherits(response, "condition")) {
+      last_transport <- sprintf(
+        "%s: %s", class(response)[[1L]],
+        inv_redact_transport_message(conditionMessage(response), token)
+      )
+    } else if (!inherits(response, "response")) {
+      last_transport <- sprintf(
+        "unexpected response class %s",
+        paste(class(response), collapse = "/")
+      )
+    } else {
+      status <- as.integer(response$status_code)
+      if (length(status) != 1L || is.na(status)) {
+        last_transport <- "invalid HTTP status"
+      } else if (identical(status, 200L)) {
+        return(invisible(TRUE))
+      } else if (status %in% c(401L, 403L)) {
+        inv_fail(
+          paste0(
+            "NEON API authentication preflight returned HTTP %d; ",
+            "NEON_TOKEN was rejected or has expired"
+          ),
+          status
+        )
+      } else if (!(identical(status, 429L) || status >= 500L)) {
+        inv_fail("NEON API authentication preflight returned HTTP %d", status)
+      } else {
+        last_transport <- sprintf("retryable HTTP %d", status)
+      }
+    }
+
+    if (attempt < INV_NEON_AUTH_ATTEMPTS) {
+      sleep(INV_NEON_AUTH_BACKOFF_SECONDS[[attempt]])
+    }
+  }
+  inv_fail(
+    "NEON API authentication preflight failed after %d attempts: %s",
+    INV_NEON_AUTH_ATTEMPTS, last_transport
+  )
+}
+
 inv_persist_fetched_source <- function(source_data, artifact_path,
                                        evidence_path, receipt_path,
                                        fetched_at_utc, producer_git_sha) {
@@ -70,6 +152,7 @@ fetch_inv_all <- function() {
   token <- trimws(Sys.getenv("NEON_TOKEN", ""))
   inv_assert(nzchar(token),
              "NEON_TOKEN is required; anonymous or workstation-path fallback is forbidden")
+  inv_neon_auth_preflight(token)
 
   cat(sprintf(
     "Fetching %s, all sites/all dates, package=%s, release=%s, provisional=%s...\n",
@@ -93,6 +176,14 @@ fetch_inv_all <- function() {
     forceParallel = FALSE,
     useFasttime = FALSE,
     progress = TRUE
+  )
+  inv_assert(
+    is.list(source_data) && !is.null(names(source_data)) &&
+      length(names(source_data)) == length(source_data),
+    paste0(
+      "neonUtilities returned no named RELEASE-2026 source after a ",
+      "successful authenticated preflight"
+    )
   )
 
   fetched_at_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")

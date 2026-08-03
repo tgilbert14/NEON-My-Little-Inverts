@@ -121,7 +121,10 @@ the source, science, candidate, and exact-head review gates before the restricte
 publisher can update the review branch. The automation cannot write directly to
 `main` or approve its own candidate. Manual fetches preserve one 90-day
 raw-plus-evidence artifact even on contract drift; without the authoritative
-source receipt it can never enter candidate publication.
+source receipt it can never enter candidate publication. A bounded, token-safe
+authentication preflight retries transport/429/5xx failures and distinguishes
+401/403 rejection without printing request headers, response bodies, or secret
+material; a transport failure cannot masquerade as fetched source data.
 
 ## Run locally
 

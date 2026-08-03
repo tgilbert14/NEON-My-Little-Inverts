@@ -528,6 +528,54 @@ inv_verify_fetch_source_handoff(
 # unit and QC drift must leave reviewable raw evidence but no source receipt.
 fetch_env <- new.env(parent = globalenv())
 invisible(capture.output(sys.source("scripts/fetch_inv_all.R", envir = fetch_env)))
+fixture_token <- "fixture-token-must-never-enter-errors"
+mock_response <- function(status) {
+  structure(list(status_code = as.integer(status)), class = "response")
+}
+expect_true(
+  isTRUE(fetch_env$inv_neon_auth_preflight(
+    fixture_token, request = function(url, token) mock_response(200L)
+  )),
+  "NEON authentication preflight accepts HTTP 200"
+)
+transport_message <- expect_error(
+  fetch_env$inv_neon_auth_preflight(
+    fixture_token,
+    request = function(url, token) {
+      stop(sprintf("transport echoed %s", token), call. = FALSE)
+    },
+    sleep = function(seconds) NULL
+  ),
+  "authentication preflight failed after 4 attempts.*<redacted>"
+)
+expect_true(
+  !grepl(fixture_token, transport_message, fixed = TRUE),
+  "NEON authentication preflight redacts the token from transport errors"
+)
+expect_error(
+  fetch_env$inv_neon_auth_preflight(
+    fixture_token, request = function(url, token) mock_response(403L)
+  ),
+  "authentication preflight returned HTTP 403"
+)
+retry_status <- c(500L, 429L, 200L)
+retry_calls <- 0L
+retry_sleeps <- numeric()
+expect_true(
+  isTRUE(fetch_env$inv_neon_auth_preflight(
+    fixture_token,
+    request = function(url, token) {
+      retry_calls <<- retry_calls + 1L
+      mock_response(retry_status[[retry_calls]])
+    },
+    sleep = function(seconds) retry_sleeps <<- c(retry_sleeps, seconds)
+  )),
+  "NEON authentication preflight recovers from bounded 5xx/429 responses"
+)
+expect_true(
+  identical(retry_calls, 3L) && identical(retry_sleeps, c(2, 4)),
+  "NEON authentication preflight uses the exact bounded backoff schedule"
+)
 for (drift_kind in c("measurement-unit", "qc-schema")) {
   drift <- valid
   if (drift_kind == "measurement-unit") {
