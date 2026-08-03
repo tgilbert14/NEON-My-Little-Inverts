@@ -18,3 +18,31 @@ The committed manifest currently carries nine stale app/data checksums from earl
 Local evidence: the workflow parses as YAML and all eight embedded run blocks pass `bash -n`; changed R files parse; `git diff --check` passes; a focused 34-site fixture passed the complete verifier at 830 bouts, 6,430 samples, and 9,392 search rows; a deliberate SYCA sample-count shrink and an extra manifest data path were both rejected.
 
 Before merging, run the code-only workflow on the proposed head, review its exact-head checks, open the generated compare link as a repository reviewer, and merge only after the PR checks are green.
+
+## 2026-08-03 · Refresh publisher and manifest provenance repair
+
+- Scheduled refreshes had completed candidate production and independent
+  validation but failed while publishing the review branch. PR #3 repaired that
+  boundary and merged as `d1af49817e52381b2a519f3c3d68e7c32b175003`.
+- Post-repair workflow run `30819110562` passed producer, validator, and restricted
+  publisher. It published candidate `39e169fe046bb01d9a16fec83b0b8330fdcd94ec`
+  as a direct child of that merge. The three regenerated RDS indexes decode
+  identically to `main`; their byte differences are serialization-only.
+- Pre-PR semantic review correctly held that candidate. Its regenerated manifest
+  retained exact source URLs but exposed the geospatial packages through symbolic
+  `Source=URL` / `Repository=RSPM` deployment fields and kept validator wall-clock
+  `Built` values. Connect treats the top-level repository as a network location,
+  so this was not safe to merge despite green validation.
+- This follow-up removes the old version-rewrite escape hatch, requires Plotly
+  4.12.0 and the complete eight-package geospatial closure from exact retained
+  URLs, validates actual installed versions/origins before canonicalization, gives
+  Connect absolute deployment lanes, strips only non-semantic exact-source build
+  clocks, and independently rechecks the complete provenance contract.
+- No runtime, scientific helper, bundled observation, Pages, Connect, or Driver
+  byte is changed by the repair commit. The review candidate must be regenerated
+  from this exact branch, compared semantically, and pass exact-head PR checks
+  before merge. Candidate `39e169f` is diagnostic evidence only and is superseded.
+
+Next action: publish this focused repair, dispatch the skip-download refresh on its
+exact branch, inspect the replacement review candidate, then open and merge the
+combined exact-head PR only after all gates pass.

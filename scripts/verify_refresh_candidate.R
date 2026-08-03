@@ -178,6 +178,63 @@ assert(grepl("packagemanager[.]posit[.]co/cran/__linux__/jammy/2026-07-15",
              manifest_text),
        "manifest.json does not carry the pinned 2026-07-15 package snapshot")
 
+scalar <- function(x) if (is.null(x) || length(x) != 1L || is.na(x)) "" else as.character(x)
+expected_platform <- "4.5.2"
+expected_repository <- "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
+expected_geo_pins <- c(
+  terra="1.8-50", sf="1.1-1", s2="1.1.11", units="1.0-1",
+  wk="0.9.5", classInt="0.4-11", raster="3.6-32", sp="2.2-1")
+expected_geo_urls <- c(
+  terra="https://cran.r-project.org/src/contrib/Archive/terra/terra_1.8-50.tar.gz",
+  sf="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sf_1.1-1.tar.gz",
+  s2="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/s2_1.1.11.tar.gz",
+  units="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/units_1.0-1.tar.gz",
+  wk="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/wk_0.9.5.tar.gz",
+  classInt="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/classInt_0.4-11.tar.gz",
+  raster="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/raster_3.6-32.tar.gz",
+  sp="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sp_2.2-1.tar.gz")
+expected_snapshot_pins <- c(plotly="4.12.0")
+expected_snapshot_urls <- c(
+  plotly="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/plotly_4.12.0.tar.gz")
+
+assert(identical(scalar(manifest$platform), expected_platform),
+       "manifest platform is %s; expected %s", scalar(manifest$platform), expected_platform)
+for (pkg in names(expected_geo_pins)) {
+  rec <- manifest$packages[[pkg]]
+  assert(!is.null(rec), "manifest lacks geospatial package %s", pkg)
+  expected_ref <- paste0("url::", unname(expected_geo_urls[[pkg]]))
+  assert(identical(scalar(rec$description$Version), unname(expected_geo_pins[[pkg]])) &&
+           identical(scalar(rec$Source), "CRAN") &&
+           identical(scalar(rec$Repository), "https://cran.r-project.org") &&
+           identical(scalar(rec$description$RemoteType), "url") &&
+           identical(scalar(rec$description$RemotePkgRef), expected_ref) &&
+           !nzchar(scalar(rec$description$Built)),
+         "manifest geospatial provenance is invalid for %s", pkg)
+}
+for (pkg in names(expected_snapshot_pins)) {
+  rec <- manifest$packages[[pkg]]
+  assert(!is.null(rec), "manifest lacks snapshot-source package %s", pkg)
+  expected_ref <- paste0("url::", unname(expected_snapshot_urls[[pkg]]))
+  assert(identical(scalar(rec$description$Version), unname(expected_snapshot_pins[[pkg]])) &&
+           identical(scalar(rec$Source), "CRAN") &&
+           identical(scalar(rec$Repository), expected_repository) &&
+           identical(scalar(rec$description$RemoteType), "url") &&
+           identical(scalar(rec$description$RemotePkgRef), expected_ref) &&
+           !nzchar(scalar(rec$description$Built)),
+         "manifest snapshot-source provenance is invalid for %s", pkg)
+}
+ordinary <- setdiff(names(manifest$packages),
+                   c(names(expected_geo_pins), names(expected_snapshot_pins)))
+bad_ordinary <- ordinary[vapply(ordinary, function(pkg) {
+  rec <- manifest$packages[[pkg]]
+  standard_remote_bad <- identical(scalar(rec$description$RemoteType), "standard") &&
+    !identical(scalar(rec$description$RemoteRepos), expected_repository)
+  !identical(scalar(rec$Source), "CRAN") ||
+    !identical(scalar(rec$Repository), expected_repository) || standard_remote_bad
+}, logical(1))]
+assert(!length(bad_ordinary), "manifest ordinary-package provenance is invalid for: %s",
+       paste(bad_ordinary, collapse = ", "))
+
 cat(sprintf(
   "Candidate OK: %d exact sites, %d bouts, %d samples, %d search rows, stamp %s, %d manifest checksums.\n",
   nrow(site_index), sum(site_index$n_bouts), sum(site_index$n_samples),
