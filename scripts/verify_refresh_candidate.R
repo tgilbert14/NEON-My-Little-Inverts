@@ -40,14 +40,45 @@ baseline_args <- commandArgs(trailingOnly = TRUE)
 if (length(baseline_args) > 1L) fail("Usage: verify_refresh_candidate.R [baseline-site-index.rds]")
 if (length(baseline_args) == 1L) {
   baseline <- readRDS(baseline_args[[1]])
-  assert(is.data.frame(baseline) && "site" %in% names(baseline),
+  baseline_fields <- c("site", "n_bouts", "n_samples", "year_min", "year_max")
+  assert(is.data.frame(baseline) && all(baseline_fields %in% names(baseline)),
          "Baseline site index is invalid")
+  assert(all(baseline_fields %in% names(site_index)),
+         "Candidate site index lacks fields required for baseline comparison")
   baseline_sites <- unique(as.character(baseline$site))
   assert(nrow(site_index) >= nrow(baseline),
          "Candidate site roster shrank from %d to %d rows", nrow(baseline), nrow(site_index))
   assert(all(baseline_sites %in% site_index$site),
          "Candidate dropped baseline site(s): %s",
          paste(setdiff(baseline_sites, site_index$site), collapse = ", "))
+
+  baseline_cmp <- baseline[match(expected_sites, as.character(baseline$site)), baseline_fields]
+  candidate_cmp <- site_index[match(expected_sites, as.character(site_index$site)), baseline_fields]
+  assert(!anyNA(baseline_cmp$site) && !anyNA(candidate_cmp$site),
+         "Baseline comparison could not align the canonical site roster")
+  for (field in c("n_bouts", "n_samples")) {
+    old <- suppressWarnings(as.numeric(baseline_cmp[[field]]))
+    new <- suppressWarnings(as.numeric(candidate_cmp[[field]]))
+    assert(!anyNA(old) && !anyNA(new), "%s contains missing baseline-comparison values", field)
+    regressed <- expected_sites[new < old]
+    assert(!length(regressed),
+           "Candidate %s shrank at site(s): %s",
+           field, paste(regressed, collapse = ", "))
+  }
+  old_min <- suppressWarnings(as.integer(baseline_cmp$year_min))
+  new_min <- suppressWarnings(as.integer(candidate_cmp$year_min))
+  old_max <- suppressWarnings(as.integer(baseline_cmp$year_max))
+  new_max <- suppressWarnings(as.integer(candidate_cmp$year_max))
+  assert(!anyNA(c(old_min, new_min, old_max, new_max)),
+         "Year coverage contains missing baseline-comparison values")
+  lost_early_history <- expected_sites[new_min > old_min]
+  regressed_latest <- expected_sites[new_max < old_max]
+  assert(!length(lost_early_history),
+         "Candidate lost early-year history at site(s): %s",
+         paste(lost_early_history, collapse = ", "))
+  assert(!length(regressed_latest),
+         "Candidate latest year regressed at site(s): %s",
+         paste(regressed_latest, collapse = ", "))
 }
 
 bundle_stamps <- character(length(site_files))
@@ -125,6 +156,9 @@ assert(!length(missing_release), "manifest.json omits release file(s): %s",
 missing_files <- manifest_paths[!file.exists(manifest_paths)]
 assert(!length(missing_files), "manifest.json names missing file(s): %s",
        paste(missing_files, collapse = ", "))
+manifest_data_paths <- manifest_paths[grepl("^(data|data-sample)/", manifest_paths)]
+assert(identical(sort(manifest_data_paths), sort(release_paths)),
+       "manifest.json data inventory differs from the exact release allowlist")
 
 expected_md5 <- vapply(manifest$files, function(entry) {
   checksum <- entry$checksum
@@ -137,7 +171,7 @@ bad_md5 <- manifest_paths[tolower(actual_md5) != tolower(expected_md5)]
 assert(!length(bad_md5), "Manifest checksum mismatch for: %s",
        paste(bad_md5, collapse = ", "))
 manifest_text <- paste(readLines("manifest.json", warn = FALSE), collapse = "\n")
-assert(!grepl("cloud[.]r-project[.]org|cran/(?:__linux__/jammy/)?latest",
+assert(!grepl("cloud[.]r-project[.]org|cran[.]rstudio[.]com|cran/(?:__linux__/jammy/)?latest",
               manifest_text, perl = TRUE),
        "manifest.json contains a moving package repository")
 assert(grepl("packagemanager[.]posit[.]co/cran/__linux__/jammy/2026-07-15",

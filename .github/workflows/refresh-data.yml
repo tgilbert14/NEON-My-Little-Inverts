@@ -69,8 +69,6 @@ jobs:
     timeout-minutes: 300
     permissions:
       contents: read
-    env:
-      NEON_TOKEN: ${{ secrets.NEON_TOKEN }}
     steps:
       - name: Checkout immutable producer revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,6 +98,8 @@ jobs:
       - name: Fetch and bundle the exact 34-site product (manual only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_download == false }}
         timeout-minutes: 240
+        env:
+          NEON_TOKEN: ${{ secrets.NEON_TOKEN }}
         run: |
           set -euo pipefail
           Rscript --vanilla scripts/fetch_inv_all.R
@@ -111,8 +111,20 @@ jobs:
         run: |
           set -euo pipefail
           Rscript --vanilla -e 'expected <- c("ARIK","BARC","BIGC","BLDE","BLUE","BLWA","CARI","COMO","CRAM","CUPE","FLNT","GUIL","HOPB","KING","LECO","LEWI","LIRO","MART","MAYF","MCDI","MCRA","OKSR","POSE","PRIN","PRLA","PRPO","REDB","SUGG","SYCA","TECR","TOMB","TOOK","WALK","WLOU"); actual <- sort(sub("[.]rds$", "", basename(list.files("data/sites", pattern="^[A-Z0-9]{4}[.]rds$")))); stopifnot(identical(actual, expected)); idx <- readRDS("data/site_index.rds"); stopifnot(nrow(idx) == 34L, identical(sort(as.character(idx$site)), expected))'
+          expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
+          site_paths=()
+          for site in "${expected_sites[@]}"; do
+            site_paths+=("data/sites/${site}.rds")
+          done
+          expected_inventory=$(printf '%s\n' "${site_paths[@]}" | LC_ALL=C sort)
+          actual_inventory=$(find data/sites -maxdepth 1 -type f -print | LC_ALL=C sort)
+          if [[ "$actual_inventory" != "$expected_inventory" ]]; then
+            echo "Producer site inventory differs from the exact release allowlist."
+            diff <(printf '%s\n' "$expected_inventory") <(printf '%s\n' "$actual_inventory") || true
+            exit 1
+          fi
           git diff --check
-          tar -czf "$RUNNER_TEMP/invert-produced.tgz" data/sites
+          tar -czf "$RUNNER_TEMP/invert-produced.tgz" "${site_paths[@]}"
 
       - name: Upload producer candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -173,6 +185,14 @@ jobs:
       - name: Materialize candidate in the clean validator checkout
         run: |
           set -euo pipefail
+          expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
+          expected_members=$(printf 'data/sites/%s.rds\n' "${expected_sites[@]}" | LC_ALL=C sort)
+          actual_members=$(tar -tzf "$RUNNER_TEMP/candidate/invert-produced.tgz" | LC_ALL=C sort)
+          if [[ "$actual_members" != "$expected_members" ]]; then
+            echo "Producer artifact members differ from the exact site allowlist."
+            diff <(printf '%s\n' "$expected_members") <(printf '%s\n' "$actual_members") || true
+            exit 1
+          fi
           cp data/site_index.rds "$RUNNER_TEMP/committed-site-index.rds"
           rm -f data/sites/*.rds
           tar -xzf "$RUNNER_TEMP/candidate/invert-produced.tgz"
@@ -192,7 +212,24 @@ jobs:
           git diff --check
 
       - name: Package immutable validated candidate
-        run: tar -czf "$RUNNER_TEMP/invert-refresh.tgz" data data-sample manifest.json
+        run: |
+          set -euo pipefail
+          expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
+          release_paths=(data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds manifest.json)
+          for site in "${expected_sites[@]}"; do
+            release_paths+=("data/sites/${site}.rds")
+          done
+          for path in "${release_paths[@]}"; do
+            test -f "$path"
+          done
+          expected_scoped=$(printf '%s\n' "${release_paths[@]}" | grep -E '^(data|data-sample)/' | LC_ALL=C sort)
+          actual_scoped=$(find data data-sample -type f -print | LC_ALL=C sort)
+          if [[ "$actual_scoped" != "$expected_scoped" ]]; then
+            echo "Validated data inventory differs from the exact publication allowlist."
+            diff <(printf '%s\n' "$expected_scoped") <(printf '%s\n' "$actual_scoped") || true
+            exit 1
+          fi
+          tar -czf "$RUNNER_TEMP/invert-refresh.tgz" "${release_paths[@]}"
 
       - name: Upload validated candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -232,7 +269,19 @@ jobs:
             echo "Producer revision does not contain current main; refusing stale publication."
             exit 1
           fi
-          rm -f data/sites/*.rds data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds
+          expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
+          release_paths=(data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds manifest.json)
+          for site in "${expected_sites[@]}"; do
+            release_paths+=("data/sites/${site}.rds")
+          done
+          expected_members=$(printf '%s\n' "${release_paths[@]}" | LC_ALL=C sort)
+          actual_members=$(tar -tzf "$RUNNER_TEMP/candidate/invert-refresh.tgz" | LC_ALL=C sort)
+          if [[ "$actual_members" != "$expected_members" ]]; then
+            echo "Validated artifact members differ from the exact publication allowlist."
+            diff <(printf '%s\n' "$expected_members") <(printf '%s\n' "$actual_members") || true
+            exit 1
+          fi
+          rm -f -- "${release_paths[@]}"
           tar -xzf "$RUNNER_TEMP/candidate/invert-refresh.tgz"
 
           branch="automation/invert-data-refresh"
@@ -240,8 +289,8 @@ jobs:
           git switch -C "$branch"
           git config user.name "neon-data-bot"
           git config user.email "neon-data-bot@users.noreply.github.com"
-          git add -A -- data data-sample manifest.json
-          if git diff --cached --quiet -- data data-sample manifest.json; then
+          git add -- "${release_paths[@]}"
+          if git diff --cached --quiet -- "${release_paths[@]}"; then
             echo "No validated candidate change, including untracked scoped files."
             exit 0
           fi

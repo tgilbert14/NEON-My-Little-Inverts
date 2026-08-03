@@ -80,6 +80,7 @@ if (!is.null(m$packages$terra) &&
   before <- mtxt
   snapshot <- "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
   mtxt <- gsub("https://cloud.r-project.org", snapshot, mtxt, fixed = TRUE)
+  mtxt <- gsub("https://cran.rstudio.com", snapshot, mtxt, fixed = TRUE)
   mtxt <- gsub("https://packagemanager.posit.co/cran/latest", snapshot, mtxt, fixed = TRUE)
   mtxt <- gsub("https://packagemanager.posit.co/cran/__linux__/jammy/latest", snapshot, mtxt, fixed = TRUE)
   if (!identical(before, mtxt)) {
