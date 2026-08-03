@@ -51,6 +51,7 @@ if ("data.table" %in% pkgs) cat("Note: data.table present (a legit plotly depend
 
 R_PLATFORM_PIN <- "4.5.2"
 RSPM_SNAPSHOT <- "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
+RSCONNECT_CRAN_ALIAS <- "https://cloud.r-project.org"
 GEO_PINS <- c(
   terra="1.8-50", sf="1.1-1", s2="1.1.11", units="1.0-1",
   wk="0.9.5", classInt="0.4-11", raster="3.6-32", sp="2.2-1")
@@ -102,17 +103,33 @@ for (pkg in names(SNAPSHOT_SOURCE_PINS)) {
       pkg, scalar(rec$description$Version), scalar(rec$description$RemoteType),
       scalar(rec$description$RemotePkgRef), unname(SNAPSHOT_SOURCE_PINS[[pkg]]), expected_ref))
 }
-for (pkg in setdiff(names(m$packages), c(names(GEO_PINS), names(SNAPSHOT_SOURCE_PINS)))) {
+ordinary <- setdiff(names(m$packages), c(names(GEO_PINS), names(SNAPSHOT_SOURCE_PINS)))
+ordinary_alias_seen <- FALSE
+for (pkg in ordinary) {
   rec <- m$packages[[pkg]]
+  repository <- scalar(rec$Repository)
+  remote_type <- scalar(rec$description$RemoteType)
+  remote_repos <- scalar(rec$description$RemoteRepos)
   if (!identical(scalar(rec$Source), "CRAN") ||
-      !identical(scalar(rec$Repository), RSPM_SNAPSHOT))
+      !repository %in% c(RSPM_SNAPSHOT, RSCONNECT_CRAN_ALIAS))
     problems <- c(problems, sprintf("%s deployment lane is %s/%s", pkg,
                                     scalar(rec$Source), scalar(rec$Repository)))
-  if (identical(scalar(rec$description$RemoteType), "standard") &&
-      !identical(scalar(rec$description$RemoteRepos), RSPM_SNAPSHOT))
+  if (!remote_type %in% c("", "standard"))
+    problems <- c(problems, sprintf("%s RemoteType=%s", pkg, remote_type))
+  if (identical(remote_type, "standard") &&
+      !remote_repos %in% c(RSPM_SNAPSHOT, RSCONNECT_CRAN_ALIAS))
     problems <- c(problems, sprintf("%s RemoteRepos=%s", pkg,
-                                    scalar(rec$description$RemoteRepos)))
+                                    remote_repos))
+  ordinary_alias_seen <- ordinary_alias_seen ||
+    identical(repository, RSCONNECT_CRAN_ALIAS) ||
+    identical(remote_repos, RSCONNECT_CRAN_ALIAS)
 }
+if (ordinary_alias_seen &&
+    (!identical(Sys.getenv("RSPM"), RSPM_SNAPSHOT) ||
+     !identical(Sys.getenv("RENV_CONFIG_REPOS_OVERRIDE"), RSPM_SNAPSHOT)))
+  problems <- c(problems, paste0(
+    "rsconnect emitted its cloud.r-project.org ordinary-CRAN alias outside the ",
+    "workflow's exact RSPM/RENV snapshot environment"))
 if (length(problems)) stop(sprintf(
   "MANIFEST PROVENANCE GATE FAILED: %s. Install exact retained sources; never rewrite versions after generation.",
   paste(problems, collapse = "; ")), call. = FALSE)
@@ -128,6 +145,12 @@ for (pkg in names(SNAPSHOT_SOURCE_PINS)) {
   m$packages[[pkg]]$description$Built <- NULL
   m$packages[[pkg]]$Source <- "CRAN"
   m$packages[[pkg]]$Repository <- RSPM_SNAPSHOT
+}
+for (pkg in ordinary) {
+  m$packages[[pkg]]$Source <- "CRAN"
+  m$packages[[pkg]]$Repository <- RSPM_SNAPSHOT
+  if (identical(scalar(m$packages[[pkg]]$description$RemoteType), "standard"))
+    m$packages[[pkg]]$description$RemoteRepos <- RSPM_SNAPSHOT
 }
 jsonlite::write_json(m, "manifest.json", auto_unbox = TRUE, pretty = TRUE, null = "null")
 
@@ -146,4 +169,18 @@ for (pkg in names(GEO_PINS)) {
       nzchar(scalar(rec$description$Built)))
     stop(sprintf("Post-canonicalization geospatial gate failed for %s.", pkg), call. = FALSE)
 }
+for (pkg in ordinary) {
+  rec <- check$packages[[pkg]]
+  standard_remote_bad <- identical(scalar(rec$description$RemoteType), "standard") &&
+    !identical(scalar(rec$description$RemoteRepos), RSPM_SNAPSHOT)
+  if (!identical(scalar(rec$Source), "CRAN") ||
+      !identical(scalar(rec$Repository), RSPM_SNAPSHOT) || standard_remote_bad)
+    stop(sprintf("Post-canonicalization ordinary-package gate failed for %s.", pkg),
+         call. = FALSE)
+}
+canonical_text <- paste(readLines("manifest.json", warn = FALSE), collapse = "\n")
+if (grepl("cloud[.]r-project[.]org|cran[.]rstudio[.]com|cran/(?:__linux__/jammy/)?latest",
+          canonical_text, perl = TRUE))
+  stop("Post-canonicalization manifest still contains a moving package repository.",
+       call. = FALSE)
 cat("Manifest OK: canonical fields preserved and exact retained package provenance verified.\n")

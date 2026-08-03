@@ -46,3 +46,24 @@ Before merging, run the code-only workflow on the proposed head, review its exac
 Next action: publish this focused repair, dispatch the skip-download refresh on its
 exact branch, inspect the replacement review candidate, then open and merge the
 combined exact-head PR only after all gates pass.
+
+## 2026-08-03 · Ordinary-package manifest alias follow-up
+
+- Restricted refresh `30822032342` proved the producer boundary and stopped
+  safely in the clean validator. `rsconnect::writeManifest()` represented
+  ordinary CRAN packages with `https://cloud.r-project.org` even though both
+  workflow repository controls were pinned to the dated 2026-07-15 RSPM
+  snapshot. The publisher was skipped, so no candidate branch or production byte
+  changed.
+- The manifest writer now accepts that one rsconnect ordinary-CRAN alias only
+  when `RSPM` and `RENV_CONFIG_REPOS_OVERRIDE` both equal the exact dated
+  snapshot. It still rejects `cran.rstudio.com`, `latest`, non-CRAN sources, and
+  nonstandard remotes; exact Plotly and geospatial URL origins remain mandatory.
+- Only after those installed-origin checks pass does the writer replace ordinary
+  package deployment fields with the dated snapshot. The independent candidate
+  verifier still accepts only the final dated-snapshot form, and a new
+  post-canonicalization gate rejects any remaining moving repository.
+
+Next action: run the restricted skip-download refresh again from this exact
+repair head. Review and merge only its direct-child candidate after semantic
+comparison and green literal-head CI.
