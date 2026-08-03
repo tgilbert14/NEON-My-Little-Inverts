@@ -227,10 +227,13 @@ ordinary <- setdiff(names(manifest$packages),
                    c(names(expected_geo_pins), names(expected_snapshot_pins)))
 bad_ordinary <- ordinary[vapply(ordinary, function(pkg) {
   rec <- manifest$packages[[pkg]]
-  standard_remote_bad <- identical(scalar(rec$description$RemoteType), "standard") &&
+  remote_type <- scalar(rec$description$RemoteType)
+  remote_type_bad <- !remote_type %in% c("", "standard")
+  standard_remote_bad <- identical(remote_type, "standard") &&
     !identical(scalar(rec$description$RemoteRepos), expected_repository)
   !identical(scalar(rec$Source), "CRAN") ||
-    !identical(scalar(rec$Repository), expected_repository) || standard_remote_bad
+    !identical(scalar(rec$Repository), expected_repository) ||
+    remote_type_bad || standard_remote_bad
 }, logical(1))]
 assert(!length(bad_ordinary), "manifest ordinary-package provenance is invalid for: %s",
        paste(bad_ordinary, collapse = ", "))

@@ -67,3 +67,19 @@ combined exact-head PR only after all gates pass.
 Next action: run the restricted skip-download refresh again from this exact
 repair head. Review and merge only its direct-child candidate after semantic
 comparison and green literal-head CI.
+
+## 2026-08-03 · Independent ordinary-remote verifier hardening
+
+- A separate adversarial audit proved the writer already rejects ordinary
+  package records with `RemoteType=url` or `RemoteType=github`, but the clean
+  candidate verifier checked `RemoteRepos` only when `RemoteType=standard`.
+  A hand-tampered manifest could therefore pass the verifier if it kept the
+  dated top-level CRAN lane while adding an arbitrary URL or GitHub ref.
+- The independent verifier now permits only an empty remote type (for
+  recommended/base records) or `standard` (with the exact dated
+  `RemoteRepos`). URL/GitHub ordinary-package records fail independently of the
+  writer. Exact Plotly and geospatial URL records remain separately allowlisted
+  and fully pinned.
+- Refresh `30824016239` began before this verifier hardening and is evidence for
+  the writer alias fix only. Even if green, its candidate is superseded and must
+  not be merged; the restricted workflow must rerun on the new exact head.
