@@ -12,7 +12,7 @@
 #            site's year_min/year_max. This powers FIND-A-TAXON.
 #   $sites — the site-level metric table (reused from site_index) for the
 #            THRESHOLD query (EPT richness > X, %EPT > X%).
-#   $built — build date stamp.
+#   $built — deterministic source-bundle stamp (never the wall clock).
 #
 # Run:  "C:\Program Files\R\R-4.5.2\bin\Rscript.exe" scripts/build_search_index.R
 # ===========================================================================
@@ -27,10 +27,16 @@ EPT_ORDERS <- c("Ephemeroptera", "Plecoptera", "Trichoptera")
 
 # ---- tidy taxon-occurrence table: one row per (taxon, site) ----------------
 rows <- list()
+bundle_built <- character()
 for (f in files) {
   b <- tryCatch(readRDS(f), error = function(e) NULL)
   if (is.null(b) || is.null(b$taxa) || !nrow(b$taxa) || is.null(b$meta)) next
   m <- b$meta
+  stamp <- as.character(m$built)[1]
+  if (is.na(stamp) || !nzchar(stamp)) {
+    stop(sprintf("Bundle %s has no deterministic meta$built stamp", basename(f)))
+  }
+  bundle_built[[m$site]] <- stamp
   tx <- as.data.frame(b$taxa)
   # EPT from the taxon's order (the bundle carries is_ept already; recompute as a
   # guard so a stale flag can never mislabel the search result).
@@ -67,7 +73,13 @@ keep <- intersect(c("site","aquaticSiteType","lat","lng","elevation","n_bouts","
 sites <- site_index[, keep, drop = FALSE]
 rownames(sites) <- NULL
 
-search_index <- list(taxa = taxa, sites = sites, built = as.character(Sys.Date()))
+built_dates <- as.Date(unname(bundle_built), format = "%Y-%m-%d")
+if (length(built_dates) != length(files) || anyNA(built_dates)) {
+  stop("Every site bundle must carry an ISO-8601 meta$built date")
+}
+built_stamp <- format(max(built_dates), "%Y-%m-%d")
+
+search_index <- list(taxa = taxa, sites = sites, built = built_stamp)
 saveRDS(search_index, "data/search_index.rds", compress = "gzip")
 
 sz <- file.info("data/search_index.rds")$size
