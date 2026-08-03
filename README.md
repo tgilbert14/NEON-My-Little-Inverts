@@ -71,14 +71,20 @@ name in `global.R` so the rsconnect scanner never pins it into the manifest.
 
 ## Deploy (Posit Connect Cloud, git-backed)
 
-Connect Cloud watches this repo's `main` branch; **a push IS the deploy**. No
-shinyapps secrets, no `rsconnect/`, no `deploy.R`. `.github/workflows/refresh-data.yml`
-self-refreshes monthly (first Saturday, off-peak AZ) and pushes the rebuilt
-bundle directly to `main`.
+Connect Cloud watches this repo's `main` branch; **a reviewed merge is the
+deploy**. No shinyapps secrets, no `rsconnect/`, no `deploy.R`.
+`.github/workflows/refresh-data.yml` runs a restricted producer → independent
+validator → review-branch publisher. Scheduled runs rebuild only from the
+committed 34-site family; a full NEON fetch is manual and requires
+`workflow_dispatch` with `skip_download=false`. A validated candidate may update
+only `automation/invert-data-refresh`; it can never write `main` or approve its
+own PR.
 
 **One-time owner setup (the agent can't do these):** create the Connect Cloud
-app from this repo, set `APP_URL` in `docs/index.html`, and leave `main`
-**unprotected** so the github-actions bot can push the monthly refresh.
+app from this repo, set `APP_URL` in `docs/index.html`, and keep `main`
+protected. Review the exact candidate head and its literal-head checks before
+merging the refresh PR; the Actions publisher does not require direct-main
+access.
 
 ## Run locally
 

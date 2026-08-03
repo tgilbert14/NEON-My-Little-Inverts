@@ -1,5 +1,57 @@
 # My Little Inverts — Build/Test Handoff
 
+## 2026-08-03 — Refresh provenance production closeout
+
+- The final provenance repair head
+  `3d116fa849cf7c23fc0a1e7334a28bebcf9f4a45` produced direct-child candidate
+  `d9a3d1c60252b286b5cf708949cb14589aa6de59` through authoritative refresh run
+  `30825083094`. The candidate changed only `data/site_index.rds`,
+  `data/cross_site.rds`, `data/search_index.rds`, and `manifest.json`; all three
+  RDS files decode semantically identically to the reviewed parent. The exact
+  34-site family remains 830 bouts, 6,430 samples, and 9,392 search rows with
+  source stamp `2026-06-22`.
+- Manifest SHA-256 is
+  `a6b5056f4c786f8cbbccc8613cdbed80eebbb1d76ac4894df867247be8914c98`:
+  R 4.5.2, 91 packages, and 48 runtime files. Plotly 4.12.0 and the eight-package
+  geospatial closure retain their exact reviewed source URLs; ordinary packages
+  use only the dated 2026-07-15 RSPM lane. No moving repository, nonstandard
+  ordinary remote, or validator wall-clock survives the independent verifier.
+- PR #4 literal-head run `30826225675` passed its gate, producer, and independent
+  validator on exact candidate `d9a3d1c`; the publisher skipped exactly as
+  required for a pull-request event. Producer artifact `8860977085` is 638,768
+  bytes with digest
+  `sha256:7a1e4586c579940c0106d43df9a61f3185e0d51ea06c7d52ecbefed7bba7dae2`.
+  Validated artifact `8861539561` is 817,458 bytes with digest
+  `sha256:def6fdd51e1cfeb56e8db3b3ead34edcc9f4df9fab9710b53bc6090387f82fe4`.
+  PR #4 merged with expected-head protection as
+  `fd509ae6821aae556a51ac05820e7f4f5dafbad5`.
+- Pages deployment `30827939797` passed build `91734298591`, deploy
+  `91734337815`, and status `91734337893` on that exact merge. Its 37,949-byte
+  artifact `8861650932` has digest
+  `sha256:dd9c75093fa2e1cfeb75da63b6c3909a0882c8520d59510e5278d3991d02d995`.
+  The live 47,895-byte Pages response is byte-identical to merged
+  `docs/index.html` (both SHA-256
+  `11b4deac721d62a638f382475a0c7e2b7acac3b5e5bd40eca218756612147f45`).
+  Connect returned a real Shiny application with the 34-site picker and expected
+  Shiny 1.14.0, Plotly 4.12.0, Leaflet, and DT dependencies; it did not return an
+  error/startup page.
+- Exact Connect commit provenance is deliberately not claimed: this repository
+  has no push-triggered semantic smoke or runtime receipt, so the public boot
+  proves availability but does not bind the served worker to `fd509ae`. Pass 9
+  should add a content-aware production marker/receipt and repair the existing
+  missing `og-image.png` reference as part of the full product review.
+- The README now matches the released authority: scheduled refreshes reuse the
+  committed family, a full fetch is explicit/manual, validated bytes may update
+  only the fixed review branch, and `main` should remain protected. The former
+  direct-main/unprotected-branch instructions are superseded and unsafe.
+- This closeout is `suite-platform` documentation only. No app, bundle, metric,
+  estimator, manifest, Pages, Connect, or Driver byte changes; My Little Inverts
+  remains `PASS 9 PENDING / provisional CONTEXT` until its scientific and product
+  pass is complete.
+
+Next action: validate and merge this documentation-only authority, then keep the
+Pass 9 science/product review separate from the already-repaired refresh path.
+
 ## 2026-08-03 — Scheduled-refresh repair
 
 Start status: production `main` was healthy at `b370274`, with 34 committed site bundles. The 2026-08-02 scheduled refresh fetched and rebuilt data, then failed while generating `manifest.json` because the refresh environment omitted `cpp11`. The same workflow mistakenly selected the heavy fetch on schedules, tolerated a 28-site floor, rebased with `|| true`, and pushed data directly to `main`.
