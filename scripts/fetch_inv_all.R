@@ -18,6 +18,8 @@ INV_NEON_AUTH_CHECK_URL <- paste0(
 )
 INV_NEON_AUTH_ATTEMPTS <- 4L
 INV_NEON_AUTH_BACKOFF_SECONDS <- c(2, 4, 8)
+INV_NEON_HTTP_TIMEOUT_SECONDS <- 30
+INV_NEON_RATE_LIMIT_MAX_SECONDS <- 60
 
 inv_redact_transport_message <- function(message, token) {
   message <- paste(as.character(message), collapse = " ")
@@ -92,6 +94,152 @@ inv_neon_auth_preflight <- function(token, request = NULL,
   )
 }
 
+# neonUtilities 4.0.1 catches its internal httr error with try(..., silent=TRUE),
+# prints only "No response", and returns NULL immediately. The authenticated
+# preflight above exercises the same endpoint and headers successfully, so use a
+# process-local compatibility binding that preserves getAPI's response contract
+# while retaining the underlying transport detail, bounded retries, and a stable
+# user agent. Exact package-version and formal-argument guards make the override
+# fail closed if the pinned package implementation changes.
+inv_neon_transport_user_agent <- function() {
+  sprintf(
+    "NEON-My-Little-Inverts/RELEASE-2026 neonUtilities/%s R/%s",
+    INV_NEON_UTILITIES_VERSION, as.character(getRversion())
+  )
+}
+
+inv_neon_get_api_request <- function(api_url, token = NA_character_,
+                                     request = NULL, sleep = Sys.sleep,
+                                     has_internet = curl::has_internet) {
+  token_present <- length(token) == 1L && !is.na(token) && nzchar(token)
+  token_text <- if (token_present) as.character(token) else ""
+  if (!isTRUE(has_internet())) {
+    message("No internet connection detected. Cannot access NEON API.")
+    return(invisible(NULL))
+  }
+  if (is.null(request)) {
+    inv_assert(requireNamespace("httr", quietly = TRUE),
+               "httr is required for the NEON API transport compatibility layer")
+    request <- function(url, secret) {
+      configs <- list(
+        httr::user_agent(inv_neon_transport_user_agent()),
+        httr::timeout(INV_NEON_HTTP_TIMEOUT_SECONDS)
+      )
+      if (nzchar(secret)) {
+        configs <- c(configs, list(httr::add_headers(.headers = c(
+          "X-API-Token" = secret, "accept" = "application/json"
+        ))))
+      }
+      do.call(httr::GET, c(list(url = url), configs))
+    }
+  }
+
+  last_transport <- "no HTTP response"
+  for (attempt in seq_len(INV_NEON_AUTH_ATTEMPTS)) {
+    response <- tryCatch(
+      request(api_url, token_text),
+      error = function(error) error
+    )
+    if (inherits(response, "response")) {
+      # Preserve the package's status/body/header semantics. Its callers own
+      # ordinary HTTP-status handling; only its existing rate-limit signal causes
+      # this compatibility layer to pause and retry.
+      limit <- response$headers$`x-ratelimit-limit`
+      remaining <- suppressWarnings(as.numeric(
+        response$headers$`x-ratelimit-remaining`
+      ))
+      rate_limited <- !is.null(limit) && length(remaining) == 1L &&
+        is.finite(remaining) && remaining <= 1
+      if (!rate_limited || attempt == INV_NEON_AUTH_ATTEMPTS) {
+        return(response)
+      }
+
+      reset <- suppressWarnings(as.numeric(
+        response$headers$`x-ratelimit-reset`
+      ))
+      delay <- INV_NEON_AUTH_BACKOFF_SECONDS[[attempt]]
+      if (length(reset) == 1L && is.finite(reset) && reset >= 0) {
+        delay <- min(reset, INV_NEON_RATE_LIMIT_MAX_SECONDS)
+      }
+      sleep(delay)
+      next
+    }
+
+    if (inherits(response, "condition")) {
+      last_transport <- sprintf(
+        "%s: %s", class(response)[[1L]],
+        inv_redact_transport_message(conditionMessage(response), token_text)
+      )
+    } else {
+      last_transport <- sprintf(
+        "unexpected response class %s",
+        paste(class(response), collapse = "/")
+      )
+    }
+    if (attempt < INV_NEON_AUTH_ATTEMPTS) {
+      sleep(INV_NEON_AUTH_BACKOFF_SECONDS[[attempt]])
+    }
+  }
+
+  message(sprintf(
+    "NEON API transport failed after %d attempts: %s",
+    INV_NEON_AUTH_ATTEMPTS, last_transport
+  ))
+  invisible(NULL)
+}
+
+inv_neonutilities_get_api <- function(apiURL, token = NA_character_) {
+  if (identical(token, "")) token <- NA_character_
+  inv_neon_get_api_request(apiURL, token)
+}
+
+inv_assert_neonutilities_getapi_contract <- function(actual_version, get_api) {
+  inv_assert(
+    identical(actual_version, INV_NEON_UTILITIES_VERSION),
+    "NEON transport compatibility requires neonUtilities %s exactly; running %s",
+    INV_NEON_UTILITIES_VERSION, actual_version
+  )
+  inv_assert(
+    is.function(get_api) && identical(names(formals(get_api)), c("apiURL", "token")),
+    "neonUtilities getAPI contract drifted; refusing process-local compatibility binding"
+  )
+  invisible(TRUE)
+}
+
+inv_make_neonutilities_getapi_restore <- function(original, assign_binding) {
+  restored <- FALSE
+  function() {
+    if (!restored) {
+      assign_binding(original)
+      restored <<- TRUE
+    }
+    invisible(TRUE)
+  }
+}
+
+inv_install_neonutilities_getapi_compat <- function() {
+  actual_version <- as.character(utils::packageVersion("neonUtilities"))
+  namespace <- asNamespace("neonUtilities")
+  original <- get("getAPI", envir = namespace, inherits = FALSE)
+  inv_assert_neonutilities_getapi_contract(actual_version, original)
+  assign_binding <- function(value) {
+    utils::assignInNamespace("getAPI", value, ns = "neonUtilities")
+  }
+  assign_binding(inv_neonutilities_get_api)
+  restore <- inv_make_neonutilities_getapi_restore(original, assign_binding)
+  installed <- get("getAPI", envir = namespace, inherits = FALSE)
+  installed_ok <- is.function(installed) &&
+    identical(names(formals(installed)), c("apiURL", "token"))
+  if (!installed_ok) {
+    restore()
+  }
+  inv_assert(
+    installed_ok,
+    "Failed to install the guarded neonUtilities transport compatibility binding"
+  )
+  restore
+}
+
 inv_persist_fetched_source <- function(source_data, artifact_path,
                                        evidence_path, receipt_path,
                                        fetched_at_utc, producer_git_sha) {
@@ -153,6 +301,8 @@ fetch_inv_all <- function() {
   inv_assert(nzchar(token),
              "NEON_TOKEN is required; anonymous or workstation-path fallback is forbidden")
   inv_neon_auth_preflight(token)
+  restore_transport <- inv_install_neonutilities_getapi_compat()
+  on.exit(restore_transport(), add = TRUE)
 
   cat(sprintf(
     "Fetching %s, all sites/all dates, package=%s, release=%s, provisional=%s...\n",

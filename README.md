@@ -124,7 +124,11 @@ raw-plus-evidence artifact even on contract drift; without the authoritative
 source receipt it can never enter candidate publication. A bounded, token-safe
 authentication preflight retries transport/429/5xx failures and distinguishes
 401/403 rejection without printing request headers, response bodies, or secret
-material; a transport failure cannot masquerade as fetched source data.
+material. The pinned `neonUtilities` 4.0.1 fetch then uses a guarded, process-local
+`getAPI` compatibility binding with the same two-argument response contract, the
+preflight-proven stable user agent and timeout, bounded transport retries, and
+automatic restoration when the fetch exits. A transport failure cannot masquerade
+as fetched source data.
 
 ## Run locally
 

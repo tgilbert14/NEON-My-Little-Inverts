@@ -576,6 +576,151 @@ expect_true(
   identical(retry_calls, 3L) && identical(retry_sleeps, c(2, 4)),
   "NEON authentication preflight uses the exact bounded backoff schedule"
 )
+expect_true(
+  identical(names(formals(fetch_env$inv_neonutilities_get_api)),
+            c("apiURL", "token")) &&
+    identical(fetch_env$INV_NEON_HTTP_TIMEOUT_SECONDS, 30) &&
+    !grepl(fixture_token, fetch_env$inv_neon_transport_user_agent(), fixed = TRUE) &&
+    !grepl("--file|/home/|/Users/", fetch_env$inv_neon_transport_user_agent()),
+  "transport shim preserves getAPI formals and uses a stable path-free user agent"
+)
+contract_get_api <- function(apiURL, token = NA_character_) NULL
+expect_true(
+  isTRUE(fetch_env$inv_assert_neonutilities_getapi_contract(
+    fetch_env$INV_NEON_UTILITIES_VERSION, contract_get_api
+  )),
+  "transport shim accepts only the pinned getAPI contract"
+)
+expect_error(
+  fetch_env$inv_assert_neonutilities_getapi_contract(
+    "4.0.2", contract_get_api
+  ),
+  "requires neonUtilities 4[.]0[.]1 exactly"
+)
+expect_error(
+  fetch_env$inv_assert_neonutilities_getapi_contract(
+    fetch_env$INV_NEON_UTILITIES_VERSION, function(url, token = NULL) NULL
+  ),
+  "getAPI contract drifted"
+)
+restore_calls <- 0L
+restored_value <- NULL
+original_binding <- contract_get_api
+restore_binding <- fetch_env$inv_make_neonutilities_getapi_restore(
+  original_binding,
+  function(value) {
+    restore_calls <<- restore_calls + 1L
+    restored_value <<- value
+  }
+)
+restore_binding()
+restore_binding()
+expect_true(
+  identical(restore_calls, 1L) && identical(restored_value, original_binding),
+  "transport shim restoration is exact and idempotent"
+)
+compat_calls <- 0L
+compat_sleeps <- numeric()
+ordinary_response <- mock_response(500L)
+compat_result <- fetch_env$inv_neon_get_api_request(
+  "https://fixture.invalid/api", fixture_token,
+  request = function(url, token) {
+    compat_calls <<- compat_calls + 1L
+    ordinary_response
+  },
+  sleep = function(seconds) compat_sleeps <<- c(compat_sleeps, seconds),
+  has_internet = function() TRUE
+)
+expect_true(
+  identical(compat_result, ordinary_response) && identical(compat_calls, 1L) &&
+    !length(compat_sleeps),
+  "transport shim preserves ordinary HTTP response semantics"
+)
+compat_calls <- 0L
+compat_sleeps <- numeric()
+compat_message <- capture.output(
+  compat_result <- fetch_env$inv_neon_get_api_request(
+    "https://fixture.invalid/api", fixture_token,
+    request = function(url, token) {
+      compat_calls <<- compat_calls + 1L
+      stop(sprintf("transport echoed %s", token), call. = FALSE)
+    },
+    sleep = function(seconds) compat_sleeps <<- c(compat_sleeps, seconds),
+    has_internet = function() TRUE
+  ),
+  type = "message"
+)
+expect_true(
+  is.null(compat_result) && identical(compat_calls, 4L) &&
+    identical(compat_sleeps, c(2, 4, 8)) &&
+    any(grepl("transport failed after 4 attempts.*<redacted>", compat_message)) &&
+    !any(grepl(fixture_token, compat_message, fixed = TRUE)),
+  "transport shim retries and redacts token-bearing transport errors"
+)
+compat_calls <- 0L
+no_internet_message <- capture.output(
+  compat_result <- fetch_env$inv_neon_get_api_request(
+    "https://fixture.invalid/api", NA_character_,
+    request = function(url, token) {
+      compat_calls <<- compat_calls + 1L
+      mock_response(200L)
+    },
+    has_internet = function() FALSE
+  ),
+  type = "message"
+)
+expect_true(
+  is.null(compat_result) && identical(compat_calls, 0L) &&
+    any(grepl("No internet connection detected", no_internet_message)),
+  "transport shim preserves the no-internet NULL contract without a request"
+)
+rate_calls <- 0L
+rate_sleeps <- numeric()
+rate_response <- function(status, remaining, reset) {
+  structure(list(
+    status_code = as.integer(status),
+    headers = list(
+      `x-ratelimit-limit` = "200",
+      `x-ratelimit-remaining` = as.character(remaining),
+      `x-ratelimit-reset` = as.character(reset)
+    )
+  ), class = "response")
+}
+compat_result <- fetch_env$inv_neon_get_api_request(
+  "https://fixture.invalid/api", "",
+  request = function(url, token) {
+    rate_calls <<- rate_calls + 1L
+    expect_true(identical(token, ""), "empty token omits authentication material")
+    if (rate_calls == 1L) rate_response(200L, 1L, 90L) else mock_response(200L)
+  },
+  sleep = function(seconds) rate_sleeps <<- c(rate_sleeps, seconds),
+  has_internet = function() TRUE
+)
+expect_true(
+  identical(compat_result$status_code, 200L) && identical(rate_calls, 2L) &&
+    identical(rate_sleeps, 60),
+  "transport shim caps rate-limit sleep and returns the subsequent response"
+)
+rate_calls <- 0L
+rate_sleeps <- numeric()
+compat_result <- fetch_env$inv_neon_get_api_request(
+  "https://fixture.invalid/api", fixture_token,
+  request = function(url, token) {
+    rate_calls <<- rate_calls + 1L
+    if (rate_calls == 1L) {
+      rate_response(200L, 0L, "not-a-number")
+    } else {
+      mock_response(200L)
+    }
+  },
+  sleep = function(seconds) rate_sleeps <<- c(rate_sleeps, seconds),
+  has_internet = function() TRUE
+)
+expect_true(
+  identical(compat_result$status_code, 200L) && identical(rate_calls, 2L) &&
+    identical(rate_sleeps, 2),
+  "transport shim bounds malformed rate-limit reset headers with normal backoff"
+)
 for (drift_kind in c("measurement-unit", "qc-schema")) {
   drift <- valid
   if (drift_kind == "measurement-unit") {
