@@ -6,15 +6,16 @@
 #
 #   Rscript scripts/write_manifest.R
 #
-# CONTRACT (this is a CHECK-ONLY guard, never a re-serializer):
+# CONTRACT:
 #   * Run rsconnect::writeManifest() to write the CANONICAL manifest.json
 #     (rsconnect's own format — has the top-level "users" key + per-file
-#     "checksum"). NEVER re-serialize manifest.json with jsonlite afterwards:
-#     that reorders keys + drops the canonical fields, and Connect rejects it as
-#     invalid.
-#   * READ the written manifest and stop() ONLY if neonUtilities or arrow leak in
-#     (those would make the deploy heavy / break it). neonUtilities is referenced
-#     by a computed name in global.R, so the static scan should not pick it up.
+#     "checksum"). Parse with simplifyVector=FALSE so controlled canonicalization
+#     preserves every users/file/checksum entry and exact URL string.
+#   * Verify the complete retained source closure before changing deploy-lane
+#     fields. Never fabricate a package version or rewrite moving provenance.
+#   * Reject neonUtilities or arrow if they leak in (those would make the deploy
+#     heavy / break it). neonUtilities is referenced by a computed name in
+#     global.R, so the static scan should not pick it up.
 #   * data.table is a LEGIT plotly dependency and MUST stay — do not flag it.
 # ===========================================================================
 if (!requireNamespace("rsconnect", quietly = TRUE)) stop("install.packages('rsconnect') first")
@@ -31,7 +32,7 @@ rsconnect::writeManifest(
   )
 )
 
-# READ-ONLY verification (no re-serialize — the file on disk stays canonical)
+# Parse without simplifying nested manifest records.
 m <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
 pkgs <- names(m$packages)
 cat(sprintf("manifest.json written: %d packages.\n", length(pkgs)))
@@ -48,49 +49,138 @@ if (length(leak)) {
 cat("Good: neonUtilities / arrow are NOT in the manifest (lean deploy).\n")
 if ("data.table" %in% pkgs) cat("Note: data.table present (a legit plotly dependency — kept).\n")
 
-# ---- pin terra to the last release before the GDAL-3.8 multidim code (1.8-54) ----
-# terra >= 1.8-54 ships gdal_multidimensional.cpp using a GDAL 3.8 call unguarded in
-# releases, so it FAILS to compile against Connect Cloud's GDAL 3.4.1. Connect compiles
-# from source regardless of repo. 1.8-50 is the last release before 1.8-54: it compiles
-# on 3.4.1 and still satisfies raster's terra (>= 1.8-5). terra/raster are install-only
-# (leaflet -> raster -> terra; app never calls terra) -> zero runtime impact. Also pin
-# the repo to the dated RSPM jammy snapshot used by validation.
-#
-# IMPORTANT: this is a TEXT-ONLY edit (readLines/gsub/writeLines). Per this script's
-# CONTRACT we must NEVER re-serialize the manifest with jsonlite — that drops the
-# canonical "users" key + per-file "checksum" and Connect rejects it. The line-level
-# substitutions below preserve the canonical rsconnect format untouched, and the gate
-# directly below re-validates those fields after this runs.
-if (!is.null(m$packages$terra) &&
-    !identical(m$packages$terra$description$Version, "1.8-50")) {
-  old_ver <- m$packages$terra$description$Version
-  mtxt <- readLines("manifest.json", warn = FALSE)
-  # Replace the terra Version and RemoteSha lines only (both carry the bare version
-  # string surrounded by quotes, which is unique to terra's block in this manifest).
-  mtxt <- gsub(sprintf('"%s"', old_ver), '"1.8-50"', mtxt, fixed = TRUE)
-  writeLines(mtxt, "manifest.json")
-  m <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
-  has_users    <- "users" %in% names(m)
-  has_checksum <- length(m$files) > 0 && all(vapply(m$files, function(f) "checksum" %in% names(f), logical(1)))
-  cat(sprintf("Pinned terra %s -> 1.8-50 (text edit; canonical format preserved).\n", old_ver))
-}
-# Swap moving CRAN/RSPM repository URLs to the dated validator snapshot (text-only).
-{
-  mtxt <- readLines("manifest.json", warn = FALSE)
-  before <- mtxt
-  snapshot <- "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
-  mtxt <- gsub("https://cloud.r-project.org", snapshot, mtxt, fixed = TRUE)
-  mtxt <- gsub("https://cran.rstudio.com", snapshot, mtxt, fixed = TRUE)
-  mtxt <- gsub("https://packagemanager.posit.co/cran/latest", snapshot, mtxt, fixed = TRUE)
-  mtxt <- gsub("https://packagemanager.posit.co/cran/__linux__/jammy/latest", snapshot, mtxt, fixed = TRUE)
-  if (!identical(before, mtxt)) {
-    writeLines(mtxt, "manifest.json")
-    m <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
-    has_users    <- "users" %in% names(m)
-    has_checksum <- length(m$files) > 0 && all(vapply(m$files, function(f) "checksum" %in% names(f), logical(1)))
-    cat("Swapped package repo URLs to the dated RSPM jammy snapshot.\n")
-  }
-}
+R_PLATFORM_PIN <- "4.5.2"
+RSPM_SNAPSHOT <- "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
+RSCONNECT_CRAN_ALIAS <- "https://cloud.r-project.org"
+GEO_PINS <- c(
+  terra="1.8-50", sf="1.1-1", s2="1.1.11", units="1.0-1",
+  wk="0.9.5", classInt="0.4-11", raster="3.6-32", sp="2.2-1")
+GEO_URLS <- c(
+  terra="https://cran.r-project.org/src/contrib/Archive/terra/terra_1.8-50.tar.gz",
+  sf="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sf_1.1-1.tar.gz",
+  s2="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/s2_1.1.11.tar.gz",
+  units="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/units_1.0-1.tar.gz",
+  wk="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/wk_0.9.5.tar.gz",
+  classInt="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/classInt_0.4-11.tar.gz",
+  raster="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/raster_3.6-32.tar.gz",
+  sp="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sp_2.2-1.tar.gz")
+SNAPSHOT_SOURCE_PINS <- c(plotly="4.12.0")
+SNAPSHOT_SOURCE_URLS <- c(
+  plotly="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/plotly_4.12.0.tar.gz")
 
-if (!has_users || !has_checksum) stop("manifest.json is missing canonical rsconnect fields — do NOT hand-edit / re-serialize it.")
-cat("Manifest OK.\n")
+scalar <- function(x) if (is.null(x) || length(x) != 1L || is.na(x)) "" else as.character(x)
+problems <- character(0)
+if (!identical(scalar(m$platform), R_PLATFORM_PIN))
+  problems <- c(problems, sprintf("platform=%s (want %s)", scalar(m$platform), R_PLATFORM_PIN))
+
+for (pkg in names(GEO_PINS)) {
+  rec <- m$packages[[pkg]]
+  if (is.null(rec)) {
+    problems <- c(problems, sprintf("%s=<missing>", pkg))
+    next
+  }
+  expected_ref <- paste0("url::", unname(GEO_URLS[[pkg]]))
+  if (!identical(scalar(rec$description$Version), unname(GEO_PINS[[pkg]])) ||
+      !identical(scalar(rec$description$RemoteType), "url") ||
+      !identical(scalar(rec$description$RemotePkgRef), expected_ref))
+    problems <- c(problems, sprintf(
+      "%s origin version=%s type=%s ref=%s (want %s from %s)",
+      pkg, scalar(rec$description$Version), scalar(rec$description$RemoteType),
+      scalar(rec$description$RemotePkgRef), unname(GEO_PINS[[pkg]]), expected_ref))
+}
+for (pkg in names(SNAPSHOT_SOURCE_PINS)) {
+  rec <- m$packages[[pkg]]
+  if (is.null(rec)) {
+    problems <- c(problems, sprintf("%s=<missing>", pkg))
+    next
+  }
+  expected_ref <- paste0("url::", unname(SNAPSHOT_SOURCE_URLS[[pkg]]))
+  if (!identical(scalar(rec$description$Version), unname(SNAPSHOT_SOURCE_PINS[[pkg]])) ||
+      !identical(scalar(rec$description$RemoteType), "url") ||
+      !identical(scalar(rec$description$RemotePkgRef), expected_ref))
+    problems <- c(problems, sprintf(
+      "%s snapshot origin version=%s type=%s ref=%s (want %s from %s)",
+      pkg, scalar(rec$description$Version), scalar(rec$description$RemoteType),
+      scalar(rec$description$RemotePkgRef), unname(SNAPSHOT_SOURCE_PINS[[pkg]]), expected_ref))
+}
+ordinary <- setdiff(names(m$packages), c(names(GEO_PINS), names(SNAPSHOT_SOURCE_PINS)))
+ordinary_alias_seen <- FALSE
+for (pkg in ordinary) {
+  rec <- m$packages[[pkg]]
+  repository <- scalar(rec$Repository)
+  remote_type <- scalar(rec$description$RemoteType)
+  remote_repos <- scalar(rec$description$RemoteRepos)
+  if (!identical(scalar(rec$Source), "CRAN") ||
+      !repository %in% c(RSPM_SNAPSHOT, RSCONNECT_CRAN_ALIAS))
+    problems <- c(problems, sprintf("%s deployment lane is %s/%s", pkg,
+                                    scalar(rec$Source), scalar(rec$Repository)))
+  if (!remote_type %in% c("", "standard"))
+    problems <- c(problems, sprintf("%s RemoteType=%s", pkg, remote_type))
+  if (identical(remote_type, "standard") &&
+      !remote_repos %in% c(RSPM_SNAPSHOT, RSCONNECT_CRAN_ALIAS))
+    problems <- c(problems, sprintf("%s RemoteRepos=%s", pkg,
+                                    remote_repos))
+  ordinary_alias_seen <- ordinary_alias_seen ||
+    identical(repository, RSCONNECT_CRAN_ALIAS) ||
+    identical(remote_repos, RSCONNECT_CRAN_ALIAS)
+}
+if (ordinary_alias_seen &&
+    (!identical(Sys.getenv("RSPM"), RSPM_SNAPSHOT) ||
+     !identical(Sys.getenv("RENV_CONFIG_REPOS_OVERRIDE"), RSPM_SNAPSHOT)))
+  problems <- c(problems, paste0(
+    "rsconnect emitted its cloud.r-project.org ordinary-CRAN alias outside the ",
+    "workflow's exact RSPM/RENV snapshot environment"))
+if (length(problems)) stop(sprintf(
+  "MANIFEST PROVENANCE GATE FAILED: %s. Install exact retained sources; never rewrite versions after generation.",
+  paste(problems, collapse = "; ")), call. = FALSE)
+
+# Only after exact installed-origin proof, canonicalize the deployment fields
+# Connect uses as network locations and remove non-semantic validator build clocks.
+for (pkg in names(GEO_PINS)) {
+  m$packages[[pkg]]$description$Built <- NULL
+  m$packages[[pkg]]$Source <- "CRAN"
+  m$packages[[pkg]]$Repository <- "https://cran.r-project.org"
+}
+for (pkg in names(SNAPSHOT_SOURCE_PINS)) {
+  m$packages[[pkg]]$description$Built <- NULL
+  m$packages[[pkg]]$Source <- "CRAN"
+  m$packages[[pkg]]$Repository <- RSPM_SNAPSHOT
+}
+for (pkg in ordinary) {
+  m$packages[[pkg]]$Source <- "CRAN"
+  m$packages[[pkg]]$Repository <- RSPM_SNAPSHOT
+  if (identical(scalar(m$packages[[pkg]]$description$RemoteType), "standard"))
+    m$packages[[pkg]]$description$RemoteRepos <- RSPM_SNAPSHOT
+}
+jsonlite::write_json(m, "manifest.json", auto_unbox = TRUE, pretty = TRUE, null = "null")
+
+check <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
+has_users <- "users" %in% names(check)
+has_checksum <- length(check$files) > 0L &&
+  all(vapply(check$files, function(f) "checksum" %in% names(f), logical(1)))
+if (!has_users || !has_checksum)
+  stop("manifest.json lost canonical users/checksum fields during controlled canonicalization.", call. = FALSE)
+for (pkg in names(GEO_PINS)) {
+  rec <- check$packages[[pkg]]
+  expected_ref <- paste0("url::", unname(GEO_URLS[[pkg]]))
+  if (!identical(scalar(rec$Source), "CRAN") ||
+      !identical(scalar(rec$Repository), "https://cran.r-project.org") ||
+      !identical(scalar(rec$description$RemotePkgRef), expected_ref) ||
+      nzchar(scalar(rec$description$Built)))
+    stop(sprintf("Post-canonicalization geospatial gate failed for %s.", pkg), call. = FALSE)
+}
+for (pkg in ordinary) {
+  rec <- check$packages[[pkg]]
+  standard_remote_bad <- identical(scalar(rec$description$RemoteType), "standard") &&
+    !identical(scalar(rec$description$RemoteRepos), RSPM_SNAPSHOT)
+  if (!identical(scalar(rec$Source), "CRAN") ||
+      !identical(scalar(rec$Repository), RSPM_SNAPSHOT) || standard_remote_bad)
+    stop(sprintf("Post-canonicalization ordinary-package gate failed for %s.", pkg),
+         call. = FALSE)
+}
+canonical_text <- paste(readLines("manifest.json", warn = FALSE), collapse = "\n")
+if (grepl("cloud[.]r-project[.]org|cran[.]rstudio[.]com|cran/(?:__linux__/jammy/)?latest",
+          canonical_text, perl = TRUE))
+  stop("Post-canonicalization manifest still contains a moving package repository.",
+       call. = FALSE)
+cat("Manifest OK: canonical fields preserved and exact retained package provenance verified.\n")
