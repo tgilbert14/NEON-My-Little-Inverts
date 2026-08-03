@@ -54,7 +54,7 @@ if ("data.table" %in% pkgs) cat("Note: data.table present (a legit plotly depend
 # from source regardless of repo. 1.8-50 is the last release before 1.8-54: it compiles
 # on 3.4.1 and still satisfies raster's terra (>= 1.8-5). terra/raster are install-only
 # (leaflet -> raster -> terra; app never calls terra) -> zero runtime impact. Also pin
-# the repo to the RSPM jammy binary mirror for suite consistency.
+# the repo to the dated RSPM jammy snapshot used by validation.
 #
 # IMPORTANT: this is a TEXT-ONLY edit (readLines/gsub/writeLines). Per this script's
 # CONTRACT we must NEVER re-serialize the manifest with jsonlite — that drops the
@@ -74,18 +74,20 @@ if (!is.null(m$packages$terra) &&
   has_checksum <- length(m$files) > 0 && all(vapply(m$files, function(f) "checksum" %in% names(f), logical(1)))
   cat(sprintf("Pinned terra %s -> 1.8-50 (text edit; canonical format preserved).\n", old_ver))
 }
-# Swap any CRAN/RSPM-latest repo URLs to the RSPM jammy binary mirror (text-only).
+# Swap moving CRAN/RSPM repository URLs to the dated validator snapshot (text-only).
 {
   mtxt <- readLines("manifest.json", warn = FALSE)
   before <- mtxt
-  mtxt <- gsub("https://cloud.r-project.org", "https://packagemanager.posit.co/cran/__linux__/jammy/latest", mtxt, fixed = TRUE)
-  mtxt <- gsub("https://packagemanager.posit.co/cran/latest", "https://packagemanager.posit.co/cran/__linux__/jammy/latest", mtxt, fixed = TRUE)
+  snapshot <- "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
+  mtxt <- gsub("https://cloud.r-project.org", snapshot, mtxt, fixed = TRUE)
+  mtxt <- gsub("https://packagemanager.posit.co/cran/latest", snapshot, mtxt, fixed = TRUE)
+  mtxt <- gsub("https://packagemanager.posit.co/cran/__linux__/jammy/latest", snapshot, mtxt, fixed = TRUE)
   if (!identical(before, mtxt)) {
     writeLines(mtxt, "manifest.json")
     m <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
     has_users    <- "users" %in% names(m)
     has_checksum <- length(m$files) > 0 && all(vapply(m$files, function(f) "checksum" %in% names(f), logical(1)))
-    cat("Swapped package repo URLs to the RSPM jammy binary mirror.\n")
+    cat("Swapped package repo URLs to the dated RSPM jammy snapshot.\n")
   }
 }
 
