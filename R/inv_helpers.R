@@ -1,382 +1,1013 @@
 # ===========================================================================
-# NEON My Little Inverts — inv_helpers.R
-# Benthic-macroinvertebrate analyses on DP1.20120.001. The honesty backbone: the
-# abundance axis is DENSITY = individuals / m2 (estimatedTotalCount / benthicArea),
-# a WITHIN-SITE standardized density index, never an absolute population. Metrics
-# are PRECOMPUTED at build time (scripts/build_inv_data.R) per sample -> bout ->
-# site, so these helpers mostly read + shape the bundle. NO biotic-index / IBI /
-# pass-fail score: NEON aquatic sites have no calibrated reference condition.
-# (Method: EPA RBP, Barbour et al. 1999; Chao 1984; Hurlbert 1971; Hill numbers.)
-# See docs/neonize-playbook.md + docs/DATA-TAKEAWAYS.md.
+# NEON My Little Inverts — loaded-app contract helpers
+#
+# The app reads the field-first Pass-9 bundle and nothing older. A field row is
+# an opportunity; event and taxon metrics retain the exact site x event x water
+# type x habitat x sampler grain. Missing, unknown, and a reported laboratory
+# zero are different states. All summaries are descriptive collection records.
 # ===========================================================================
-`%||%` <- function(a, b) if (is.null(a) || length(a) == 0 || (length(a) == 1 && is.na(a))) b else a
-num <- function(x) suppressWarnings(as.numeric(x))
-mode_chr <- function(x){ x <- x[!is.na(x)]; if (!length(x)) return(NA_character_); names(sort(table(x), decreasing = TRUE))[1] }
 
-# The disclaimer line carried verbatim near every metric (Aquatics science spec).
-INV_DISCLAIMER <- paste0(
-  "These are descriptive bioassessment metrics, not a regulatory determination. ",
-  "NEON sites have no calibrated reference condition or state biotic index, so the app ",
-  "shows within-site trends and cross-site direction only, never a pass/fail score or an ",
-  "aquatic-life-use call. (Method: EPA RBP, Barbour et al. 1999.)")
-
-# ---------------------------------------------------------------------------
-# site_vectors(): the hero stat band, read straight from meta (precomputed).
-# density is the within-site standardized density index (individuals / m2).
-# rarefied_richness / chao1 are NA where meta$small_n (insufficient count) — the
-# UI grays those out rather than printing false precision.
-# ---------------------------------------------------------------------------
-site_vectors <- function(meta) {
-  if (is.null(meta)) return(NULL)
-  list(
-    richness     = meta$richness %||% NA_real_,
-    ept_richness = meta$ept_richness %||% NA_real_,
-    pct_ept_ind  = meta$pct_ept_ind %||% NA_real_,
-    pct_ept_taxa = meta$pct_ept_taxa %||% NA_real_,
-    density      = meta$density_m2 %||% NA_real_,
-    hill_q1      = meta$hill_q1 %||% NA_real_,
-    rarefied     = if (isTRUE(meta$small_n)) NA_real_ else (meta$rarefied_richness %||% NA_real_),
-    chao1        = if (isTRUE(meta$small_n)) NA_real_ else (meta$chao1 %||% NA_real_),
-    chao1_se     = if (isTRUE(meta$small_n)) NA_real_ else (meta$chao1_se %||% NA_real_),
-    n_bouts      = meta$n_bouts %||% NA_integer_,
-    n_samples    = meta$n_samples %||% NA_integer_,
-    total_ind    = meta$total_individuals %||% NA_real_,
-    pct_chiro    = meta$pct_chironomidae %||% NA_real_,
-    pct_oligo    = meta$pct_oligochaeta %||% NA_real_,
-    pct_dom      = meta$pct_dominant %||% NA_real_,
-    small_n      = isTRUE(meta$small_n),
-    top_taxon    = meta$top_taxon %||% NA_character_,
-    type         = meta$aquaticSiteType %||% NA_character_)
+`%||%` <- function(a, b) {
+  if (is.null(a) || !length(a) || (length(a) == 1L && is.na(a))) b else a
 }
 
-# year label for a site (from the bouts or meta)
-year_label <- function(meta) {
-  y0 <- meta$year_min; y1 <- meta$year_max
-  if (is.na(y0) || is.na(y1)) return(NA_character_)
-  if (y0 == y1) as.character(y0) else sprintf("%d–%d", y0, y1)
-}
+num <- function(x) suppressWarnings(as.numeric(as.character(x)))
 
-# ---------------------------------------------------------------------------
-# bout_series(): the EPT Pulse signature feed. One row per bout, ready to plot:
-# %EPT (pct_ept_ind) and density over time, with habitatType / samplerType /
-# small_n carried so the chart can facet, colour, and gray flagged bouts.
-# Bouts where a metric is NA (e.g. density with no benthicArea) are kept; the
-# plot drops them per-trace so the trajectory never invents a value.
-# ---------------------------------------------------------------------------
-bout_series <- function(bouts) {
-  if (is.null(bouts) || !nrow(bouts)) return(NULL)
-  b <- bouts
-  b$collectDate <- as.Date(b$collectDate)
-  b <- b[order(b$collectDate), , drop = FALSE]
-  b$flagged <- isTRUE_vec(b$small_n) | isTRUE_vec(b$mixed_habitat) | isTRUE_vec(b$mixed_sampler)
-  b
-}
-isTRUE_vec <- function(x) { x <- as.logical(x); x[is.na(x)] <- FALSE; x }
-
-# ---------------------------------------------------------------------------
-# taxa_board(): the density-vs-ubiquity board. Reads the precomputed taxa table
-# (one row per taxon: mean_density, ubiquity, is_ept). The signature scatter axes
-# are x = mean_density (log), y = ubiquity, colour = EPT vs other.
-# ---------------------------------------------------------------------------
-taxa_board <- function(taxa) {
-  if (is.null(taxa) || !nrow(taxa)) return(NULL)
-  t <- taxa
-  t$class <- ifelse(isTRUE_vec(t$is_ept), "EPT", "other")
-  t$scientificName <- ifelse(is.na(t$scientificName) | !nzchar(t$scientificName),
-                             t$acceptedTaxonID, t$scientificName)
-  t[order(-t$mean_density), , drop = FALSE]
-}
-
-# composition stack across bouts: %EPT / %Chironomidae / %Oligochaeta / %other
-composition_long <- function(bouts) {
-  if (is.null(bouts) || !nrow(bouts)) return(NULL)
-  b <- bouts; b$collectDate <- as.Date(b$collectDate); b <- b[order(b$collectDate), , drop = FALSE]
-  ept   <- num(b$pct_ept_ind);   ept[is.na(ept)]   <- 0
-  chiro <- num(b$pct_chironomidae); chiro[is.na(chiro)] <- 0
-  oligo <- num(b$pct_oligochaeta);  oligo[is.na(oligo)]  <- 0
-  other <- pmax(0, 100 - ept - chiro - oligo)
-  data.frame(
-    eventID = rep(b$eventID, 4), collectDate = rep(b$collectDate, 4),
-    component = factor(rep(c("EPT", "Chironomidae", "Oligochaeta", "other"), each = nrow(b)),
-                       levels = c("EPT", "Chironomidae", "Oligochaeta", "other")),
-    share = c(ept, chiro, oligo, other), stringsAsFactors = FALSE)
-}
-
-# pin-card HTML for a single bout/point on the time-series charts (EPT Pulse,
-# density, richness, composition). Vectorized: pass parallel vectors of title /
-# tag / stats_html and get one card per point for a trace's customdata. The
-# hidden data-tag drives the pin dedupe + the clear-on-data-change signature.
-# (No "open profile" chip — a bout isn't a navigable entity, just a pinnable read.)
-inv_bout_card <- function(title, tag, stats_html) paste0(
-  "<span class='smt-pin-emoji'>\U0001F990</span> <b>", title, "</b>",
-  "<span class='smt-tag' data-tag='", tag, "' style='display:none'></span><br/>",
-  "<span class='smt-pin-stats'>", stats_html, "</span>",
-  "<br/><em class='smt-pin-hint'>Tap the point to pin this card</em>")
-
-# within-site sample-location map feed. NEON aquatic sites sample a single reach,
-# so lat/lng are usually one point; we summarise per namedLocation (the reach /
-# habitat unit) so multiple stations show separately where they exist.
-sample_points <- function(samples) {
-  if (is.null(samples) || !nrow(samples)) return(NULL)
-  s <- samples
-  s$lat <- num(s$lat); s$lng <- num(s$lng); s$density_m2 <- num(s$density_m2)
-  s <- s[is.finite(s$lat) & is.finite(s$lng), , drop = FALSE]
-  if (!nrow(s)) return(NULL)
-  agg <- s %>% dplyr::group_by(.data$namedLocation) %>%
-    dplyr::summarise(
-      lat = stats::median(.data$lat, na.rm = TRUE),
-      lng = stats::median(.data$lng, na.rm = TRUE),
-      n_samples = dplyr::n(),
-      density_m2 = round(stats::median(.data$density_m2, na.rm = TRUE), 1),
-      modal_habitat = mode_chr(.data$habitatType),
-      modal_sampler = mode_chr(.data$samplerType),
-      .groups = "drop")
-  agg$density_m2[!is.finite(agg$density_m2)] <- NA_real_
-  agg
-}
-
-# rich within-site map popup: site context (water type, domain, years, richness,
-# EPT, elevation when present) from meta + neon_sites, plus THIS station's
-# habitat / sampler / samples / density, plus a NEON portal deep link. Uses only
-# bundled data (no live calls). One HTML string per row of pts. (Atlas)
-site_reach_popup <- function(pts, meta, site_code) {
-  if (is.null(pts) || !nrow(pts)) return(character(0))
-  nm     <- neon_sites[neon_sites$site == site_code, ]
-  sname  <- if (nrow(nm)) nm$name[1]   else site_code
-  state  <- if (nrow(nm)) nm$state[1]  else ""
-  domain <- if (nrow(nm)) nm$domain[1] else ""
-  typ    <- TYPE_LAB[meta$aquaticSiteType] %||% meta$aquaticSiteType %||% "site"
-  yrs    <- year_label(meta) %||% "—"
-  elev   <- suppressWarnings(as.numeric(meta$elevation %||% NA))
-  elev_s <- if (is.finite(elev)) sprintf(" · %s m elev", format(round(elev), big.mark = ",")) else ""
-  url    <- sprintf("https://www.neonscience.org/field-sites/%s", tolower(site_code))
-  rich   <- meta$richness %||% NA; ept <- meta$pct_ept_ind %||% NA; nb <- meta$n_bouts %||% NA
-  vapply(seq_len(nrow(pts)), function(i) sprintf(
-    paste0(
-      "<div style='font-family:Rubik,sans-serif;min-width:236px'>",
-      "<b>%s</b> · %s, %s<br>",
-      "<span style='color:#5d7c84'>%s · NEON %s%s</span><br>",
-      "<span style='color:#5d7c84;font-size:11px'>Reach: %s</span><br>",
-      "<b style='color:#0a6f7a'>%s</b> · %s sampler<br>",
-      "<b>%s</b> samples · <b>%s</b> bouts · %s<br>",
-      "density <b>%s</b>/m² · richness <b>%s</b> · EPT <b>%s%%</b>",
-      "<div style='margin-top:7px'><a href='%s' target='_blank' rel='noopener' ",
-      "class='btn btn-sm btn-outline-secondary'>View on NEON portal →</a></div></div>"),
-    sname, site_code, state,
-    typ, domain, elev_s,
-    pts$namedLocation[i] %||% "—",
-    pts$modal_habitat[i] %||% "habitat n/a", pts$modal_sampler[i] %||% "sampler n/a",
-    as.integer(pts$n_samples[i]), if (is.na(nb)) "—" else as.integer(nb), yrs,
-    ifelse(is.na(pts$density_m2[i]), "—", as.character(round(pts$density_m2[i]))),
-    if (is.na(rich)) "—" else as.character(rich),
-    if (is.na(ept)) "—" else sprintf("%.0f", ept), url),
-    character(1))
-}
-
-# ---------------------------------------------------------------------------
-# inv_qc(): the suite-standard data-quality flag system, built from the 8
-# precomputed per-site counts (meta$qc) PLUS the exact offending qc_samples rows
-# behind each, so the UI can list them (clickable) + download a per-flag CSV.
-#   high = the data can't be standardized      (no_density: missing benthicArea)
-#   warn = worth a look                        (heavy_subsmp, single_dom, coarse_tax, mixed_sampler)
-#   info = a note                              (ept_unclass, mixed_habitat, low_count)
-# Flagged rows are RETAINED, never deleted ("verify, not wrong"). Thresholds are
-# the build-time defaults (subsample < 5%, dominance > 80%, coarse share > 30%).
-# Returns list(flags = ranked list, sets = named list of offending-row frames).
-# ---------------------------------------------------------------------------
-inv_qc <- function(bundle) {
-  out <- list(flags = list(), sets = list())
-  if (is.null(bundle)) return(out)
-  qc <- bundle$meta$qc; sq <- bundle$qc_samples; bts <- bundle$bouts
-  if (is.null(qc)) return(out)
-  cnt <- function(k) { v <- suppressWarnings(as.integer(qc[[k]])); if (length(v) && !is.na(v)) v else 0L }
-
-  add <- function(level, title, key, n, detail, rows = NULL) {
-    if (is.null(n) || is.na(n) || n <= 0) return(invisible())
-    out$flags[[length(out$flags) + 1L]] <<- list(level = level, title = title, key = key, n = as.integer(n), detail = detail)
-    out$sets[[key]] <<- rows
-  }
-
-  # the qc_samples columns to surface in the inspector tables
-  show <- intersect(c("sampleID","eventID","collectDate","year","habitatType","samplerType",
-                      "benthicArea","density_m2","n_taxa","total_est","min_subsample","pct_dom",
-                      "coarse_share","ept_unclass","sampleCondition","namedLocation"), names(sq))
-  sub <- function(idx) if (is.null(idx) || !length(which(idx))) NULL else sq[which(idx), show, drop = FALSE]
-
-  no_density <- is.na(num(sq$benthicArea)) | num(sq$benthicArea) <= 0
-  add("high", "No benthic area (can't standardize density)", "no_density", cnt("no_density"),
-      "These samples have no usable benthic area, so individuals can't be turned into a density (individuals / m2) and are dropped from the density index. A sample with no sampled area is unusable as an effort denominator.",
-      sub(no_density))
-
-  heavy <- num(sq$min_subsample) < 5
-  add("warn", "Heavy subsampling (a small fraction picked)", "heavy_subsmp", cnt("heavy_subsmp"),
-      "A small fraction of the sample (under 5%) was sorted and scaled up to the whole sample, so the estimated total carries wide uncertainty. The count is an estimate, not a tally.",
-      sub(heavy))
-
-  single <- num(sq$pct_dom) > 80
-  add("warn", "One taxon dominates the sample", "single_dom", cnt("single_dom"),
-      "A single taxon makes up more than 80% of the estimated individuals in these samples. That can be real (a bloom of one midge), but it also flags a possible mis-sort or expansion artifact worth a look.",
-      sub(single))
-
-  coarse <- num(sq$coarse_share) > 30
-  add("warn", "Coarse identification (much not to species/genus)", "coarse_tax", cnt("coarse_tax"),
-      "More than 30% of the estimated individuals in these samples are identified only to family or coarser. Coarse IDs can't enter species-level richness, so they are noted here for transparency.",
-      sub(coarse))
-
-  unclass <- isTRUE_vec(sq$ept_unclass)
-  add("info", "Unclassified order present", "ept_unclass", cnt("ept_unclass"),
-      "Some individuals in these samples have no order recorded, so they can't be tested for EPT membership. They are kept in the density total but excluded from the EPT metrics.",
-      sub(unclass))
-
-  # mixed sampler / habitat are site-level booleans (1/0); offending rows = the bouts that mix
-  if (cnt("mixed_sampler") > 0 && !is.null(bts)) {
-    mb <- bts[isTRUE_vec(bts$mixed_sampler), intersect(c("eventID","collectDate","year","n_samples","habitatType","samplerType"), names(bts)), drop = FALSE]
-    add("warn", "Mixed sampler types within a bout", "mixed_sampler", if (nrow(mb)) nrow(mb) else 1L,
-        "This site uses more than one sampler type (e.g. Surber, core, kicknet) across its history, and some bouts mix them. Different samplers sweight habitats differently, so compare density within a sampler type, not across.",
-        if (nrow(mb)) mb else NULL)
-  }
-  if (cnt("mixed_habitat") > 0 && !is.null(bts)) {
-    mh <- bts[isTRUE_vec(bts$mixed_habitat), intersect(c("eventID","collectDate","year","n_samples","habitatType","samplerType"), names(bts)), drop = FALSE]
-    add("info", "Mixed habitat types within a bout", "mixed_habitat", if (nrow(mh)) nrow(mh) else 1L,
-        "Some bouts at this site combine more than one habitat (riffle, run, pool, ...). Habitat strongly shapes the community, so a bout-to-bout change can partly reflect which habitat was sampled.",
-        if (nrow(mh)) mh else NULL)
-  }
-  if (cnt("low_count") > 0 && !is.null(bts)) {
-    lb <- bts[isTRUE_vec(bts$small_n), intersect(c("eventID","collectDate","year","n_samples","total_individuals","richness"), names(bts)), drop = FALSE]
-    add("info", "Low-count bouts (richness suppressed)", "low_count", if (nrow(lb)) nrow(lb) else cnt("low_count"),
-        "These bouts have too few individuals or samples (under 100 individuals or 3 samples) for a stable standardized richness, so their rarefied richness and Chao1 are suppressed rather than shown with false precision.",
-        if (nrow(lb)) lb else NULL)
-  }
+inv_chr <- function(x) {
+  out <- trimws(as.character(x))
+  out[is.na(x) | !nzchar(out)] <- NA_character_
   out
 }
 
-# tidy combined QC report (one frame across all flags) for the full-report CSV
-inv_qc_report <- function(bundle) {
-  q <- inv_qc(bundle); if (!length(q$sets)) return(NULL)
-  parts <- list()
-  for (k in names(q$sets)) {
-    st <- q$sets[[k]]; if (is.null(st) || !nrow(st)) next
-    st <- as.data.frame(st); st$flag <- k
-    parts[[length(parts) + 1L]] <- st
+inv_true <- function(x) {
+  out <- as.logical(x)
+  out[is.na(out)] <- FALSE
+  out
+}
+
+INV_BUNDLE_SCHEMA_VERSION <- "2.0.0"
+INV_PRODUCER_SCHEMA_VERSION <- "2.0.0"
+INV_RELEASE_CONTRACT_SCHEMA_VERSION <- "1.0.0"
+INV_QC_AUDIT_SCHEMA_VERSION <- "1.0.0"
+INV_EXPECTED_DPID <- "DP1.20120.001"
+INV_EXPECTED_RELEASE <- "RELEASE-2026"
+INV_EXACT_GRAIN <-
+  "site x event x aquaticSiteType x habitatType x samplerType"
+
+INV_SOURCE_IDENTITY_FIELDS <- c(
+  "dpid", "release", "include_provisional", "publication_date_max",
+  "artifact_sha256", "receipt_sha256"
+)
+
+INV_SOURCE_QUALITY_COLUMNS <- list(
+  field = c(
+    "siteID", "namedLocation", "eventID", "sampleID", "sampleCode",
+    "collectDate", "dataQF"
+  ),
+  per_sample = c(
+    "siteID", "sampleID", "sampleCode", "dataQF", "qcSortDate",
+    "qcSortingEfficacy", "qcIterationCount", "qcPercentSimilarity",
+    "qcSortedBy", "qcEnumerationDifference", "qcTaxonomicDifference"
+  ),
+  taxonomy_processed = c(
+    "siteID", "sampleID", "sampleCode", "acceptedTaxonID",
+    "scientificName", "taxonRank", "qcChecked", "dataQF"
+  )
+)
+
+INV_ISSUE_LOG_COLUMNS <- c(
+  "id", "parentIssueID", "issueDate", "resolvedDate", "dateRangeStart",
+  "dateRangeEnd", "locationAffected", "issue", "resolution", "bundle_site",
+  "site_scope_basis", "site_scope_match", "site_collect_date_min",
+  "site_collect_date_max", "date_scope_basis", "date_overlap",
+  "potentially_applicable", "annotation_only"
+)
+
+INV_SOURCE_ROW_COLUMNS <- c(
+  "site", "collection_field_rows", "metabarcode_field_rows",
+  "per_sample_rows", "taxonomy_processed_rows", "field_qc_rows",
+  "per_sample_qc_rows", "taxonomy_qc_rows", "issue_log_rows"
+)
+
+INV_RECONCILIATION_SCALARS <- c(
+  "opportunity_rows", "status_rows", "primary_opportunities",
+  "count_eligible_samples", "composition_eligible_samples",
+  "density_eligible_samples", "reported_zero_count", "unstratifiable",
+  "taxonomy_rows_collapsed", "opportunity_complete", "count_contains_density",
+  "qc_alters_metric_eligibility"
+)
+
+INV_SEARCH_TAXON_COLUMNS <- c(
+  "siteID", "eventID", "aquaticSiteType", "habitatType", "samplerType",
+  "taxon_key", "acceptedTaxonID", "scientificName", "taxonRank", "order",
+  "family", "class", "subclass", "is_ept", "order_classified",
+  "n_count_eligible_samples", "n_samples_present", "support_pct"
+)
+
+INV_RECORD_STATUS_LEVELS <- c(
+  "sampling_impractical", "unstratifiable", "nonstandard_collection",
+  "processed_no_taxonomy", "count_unavailable", "area_unavailable",
+  "density_unavailable", "reported_zero_count", "quantified_community"
+)
+
+INV_STATUS_META <- data.frame(
+  record_status = INV_RECORD_STATUS_LEVELS,
+  label = c(
+    "Sampling impractical", "Stratum fields unavailable",
+    "Nonstandard collection", "Processed; taxonomy unavailable",
+    "Count unavailable", "Area unavailable", "Density unavailable",
+    "Reported zero (primary status)", "Quantified community"
+  ),
+  meaning = c(
+    "A field opportunity was recorded, but collection was impractical.",
+    "A field row is retained, but one or more exact-grain fields are missing.",
+    "A GRAB, BRYOZOAN, or MACROALGAE special-ID record is retained for audit and excluded from primary quantitative strata.",
+    "A practical processed sample has no taxonomy rows; this is unknown, not an observed absence.",
+    "Taxonomy exists, but expanded counts cannot be used under the count contract.",
+    "Counts can be summarized, but sampled benthic area is unavailable.",
+    "Count and area inputs exist, but sample density is non-finite.",
+    "Primary status for a usable expanded zero when no higher-priority processing state applies; the separate reported-zero support flag counts every usable zero.",
+    "The processed sample has usable expanded counts and benthic area."
+  ),
+  count_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
+  density_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE),
+  stringsAsFactors = FALSE
+)
+
+INV_REQUIRED_BUNDLE_MEMBERS <- c(
+  "schema_version", "opportunities", "event_strata", "taxon_strata",
+  "site_summary", "meta", "metric_contract", "qc", "provenance"
+)
+
+INV_OPPORTUNITY_COLUMNS <- c(
+  "opportunity_id", "sample_key", "sampleID", "sampleCode", "siteID",
+  "eventID", "collectDate", "aquaticSiteType", "habitatType", "samplerType",
+  "namedLocation", "sampleNumber", "samplingImpractical", "stratum_key",
+  "has_per_sample", "sampling_practical", "sampler_type_normalized",
+  "nonstandard_id_hint", "grain_complete", "unstratifiable", "nonstandard_collection",
+  "primary_stratum", "taxonomy_rows", "record_status", "count_issue",
+  "density_issue", "benthicArea_m2", "total_estimated_count",
+  "count_eligible", "density_eligible", "reported_zero_count",
+  "sample_density_m2", "taxa_observed", "ept_taxa_observed", "hill_q1",
+  "hill_q2", "pct_ept_of_all_estimated_count",
+  "pct_order_classified_estimated_count"
+)
+
+INV_EVENT_COLUMNS <- c(
+  "stratum_key", "siteID", "eventID", "aquaticSiteType", "habitatType",
+  "samplerType", "collectDate_min", "collectDate_max", "n_opportunities",
+  "n_sampling_impractical", "n_processed_no_taxonomy", "n_count_unavailable",
+  "n_area_unavailable", "n_density_unavailable", "n_count_samples",
+  "n_composition_samples", "n_density_samples", "n_reported_zero_count",
+  "mean_sample_density_m2", "median_sample_density_m2",
+  "sd_sample_density_m2", "se_sample_density_m2",
+  "mean_sample_taxa_observed", "mean_sample_ept_taxa_observed",
+  "mean_sample_hill_q1", "mean_sample_hill_q2",
+  "mean_sample_pct_ept_of_all_estimated_count",
+  "mean_sample_pct_order_classified_estimated_count"
+)
+
+INV_TAXON_COLUMNS <- c(
+  "stratum_key", "siteID", "eventID", "aquaticSiteType", "habitatType",
+  "samplerType", "taxon_key", "acceptedTaxonID", "scientificName",
+  "taxonRank", "order", "family", "class", "subclass", "is_ept",
+  "order_classified", "n_count_eligible_samples",
+  "n_density_eligible_samples", "n_samples_present", "support_pct",
+  "mean_sample_density_m2", "median_sample_density_m2",
+  "total_estimated_count"
+)
+
+INV_SITE_INDEX_COLUMNS <- c(
+  "site", "aquaticSiteType", "lat", "lng", "elevation",
+  "collectDate_min", "collectDate_max", "n_events", "n_strata",
+  "n_opportunities", "n_primary_opportunities", "n_count_samples",
+  "n_composition_samples", "n_density_samples", "n_reported_zero_count",
+  "n_unstratifiable", "n_taxa_recorded", "n_sampling_impractical",
+  "n_nonstandard_collection", "n_processed_no_taxonomy",
+  "n_count_unavailable", "n_area_unavailable", "n_density_unavailable",
+  "taxonomic_ranks", "source_stamp", "science_version"
+)
+
+INV_META_FIELDS <- c(
+  "schema_version", "site", "source_stamp", "built", "release",
+  "collectDate_min", "collectDate_max", "aquaticSiteType",
+  "aquatic_site_types", "lat", "lng", "elevation", "named_location_count",
+  "n_events", "n_strata", "n_opportunities", "n_primary_opportunities",
+  "n_count_samples", "n_composition_samples", "n_density_samples",
+  "n_reported_zero_count", "n_unstratifiable", "n_taxa_recorded",
+  "taxonomic_ranks", "comparison_boundary"
+)
+
+inv_contract_result <- function(ok, reason = NULL) {
+  structure(isTRUE(ok), reason = reason %||% if (isTRUE(ok)) "ok" else "invalid")
+}
+
+inv_contract_reason <- function(result) attr(result, "reason") %||% "invalid"
+
+inv_require_columns <- function(x, columns, label) {
+  if (!is.data.frame(x)) {
+    return(inv_contract_result(FALSE, sprintf("%s is not a data frame", label)))
   }
-  if (!length(parts)) return(NULL)
-  # bind by common columns (the flag-specific frames differ in shape)
-  cols <- Reduce(union, lapply(parts, names))
-  parts <- lapply(parts, function(d) { for (c in setdiff(cols, names(d))) d[[c]] <- NA; d[, cols, drop = FALSE] })
-  do.call(rbind, c(parts, list(make.row.names = FALSE)))
+  missing <- setdiff(columns, names(x))
+  if (length(missing)) {
+    return(inv_contract_result(
+      FALSE, sprintf("%s is missing column %s", label, missing[[1L]])
+    ))
+  }
+  inv_contract_result(TRUE)
 }
 
-# ---------------------------------------------------------------------------
-# cross-site inference: Spearman rho + Fisher-z CI for a gradient (one dot per
-# site). Space-for-time, correlational — the caption says so. Returns a list the
-# annotation builder consumes.
-# ---------------------------------------------------------------------------
-spearman_ci <- function(x, y) {
-  ok <- is.finite(x) & is.finite(y); x <- x[ok]; y <- y[ok]; n <- length(x)
-  if (n < 3) return(list(rho = NA_real_, lo = NA_real_, hi = NA_real_, n = n))
-  rho <- suppressWarnings(stats::cor(x, y, method = "spearman"))
-  if (!is.finite(rho) || abs(rho) >= 1 || n < 5) return(list(rho = rho, lo = NA_real_, hi = NA_real_, n = n))
-  z <- atanh(rho); se <- 1.03 / sqrt(n - 3)
-  list(rho = rho, lo = tanh(z - 1.96 * se), hi = tanh(z + 1.96 * se), n = n)
+inv_scalar_text <- function(x) {
+  value <- inv_chr(x)
+  length(value) == 1L && !is.na(value)
 }
 
-# ---------------------------------------------------------------------------
-# inv_codebook(): machine-readable column dictionary for every CSV download.
-# Built by documenting the actual export keep-vectors (units, NA-semantics, the
-# density-index caveat). Concatenated from the per-export column groups.
-# ---------------------------------------------------------------------------
+inv_sha256_text <- function(x) {
+  inv_scalar_text(x) && grepl("^[0-9a-f]{64}$", tolower(as.character(x)))
+}
+
+inv_source_identity <- function(source) {
+  if (!is.list(source)) {
+    return(inv_contract_result(FALSE, "source provenance is not a list"))
+  }
+  missing <- setdiff(INV_SOURCE_IDENTITY_FIELDS, names(source))
+  if (length(missing)) {
+    return(inv_contract_result(
+      FALSE, sprintf("source provenance is missing %s", missing[[1L]])
+    ))
+  }
+  if (!identical(as.character(source$dpid), INV_EXPECTED_DPID) ||
+      !identical(as.character(source$release), INV_EXPECTED_RELEASE) ||
+      !identical(source$include_provisional, FALSE)) {
+    return(inv_contract_result(
+      FALSE, "source provenance is not exact RELEASE-2026 without provisional data"
+    ))
+  }
+  if (!inv_scalar_text(source$publication_date_max)) {
+    return(inv_contract_result(FALSE,
+                               "source publication_date_max is unavailable"))
+  }
+  if (!inv_sha256_text(source$artifact_sha256) ||
+      !inv_sha256_text(source$receipt_sha256)) {
+    return(inv_contract_result(FALSE, "source SHA-256 identity is invalid"))
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_source_identity_equal <- function(left, right) {
+  if (!isTRUE(inv_source_identity(left)) || !isTRUE(inv_source_identity(right))) {
+    return(FALSE)
+  }
+  all(vapply(INV_SOURCE_IDENTITY_FIELDS, function(field) {
+    identical(left[[field]], right[[field]])
+  }, logical(1)))
+}
+
+inv_verify_file_sha256 <- function(path, expected_sha256) {
+  if (!file.exists(path)) {
+    return(inv_contract_result(FALSE, sprintf("file is missing: %s", path)))
+  }
+  if (!inv_sha256_text(expected_sha256)) {
+    return(inv_contract_result(FALSE, "expected file SHA-256 is invalid"))
+  }
+  if (!requireNamespace("digest", quietly = TRUE)) {
+    return(inv_contract_result(FALSE,
+                               "digest is unavailable for release-file verification"))
+  }
+  observed <- tryCatch(
+    digest::digest(file = path, algo = "sha256"),
+    error = function(e) NA_character_
+  )
+  if (!identical(tolower(observed), tolower(as.character(expected_sha256)))) {
+    return(inv_contract_result(FALSE, "file SHA-256 differs from release contract"))
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_validate_release_contract <- function(contract, expected_sites = NULL) {
+  if (!is.list(contract)) {
+    return(inv_contract_result(FALSE, "release contract is not a list"))
+  }
+  required <- c(
+    "schema_version", "producer_schema_version", "bundle_schema_version",
+    "science_version", "source", "metric_contract", "qc_contract",
+    "site_ids", "bundle_sha256", "bundle_members", "support_index_only",
+    "prohibited_cross_site_fields"
+  )
+  missing <- setdiff(required, names(contract))
+  if (length(missing)) {
+    return(inv_contract_result(
+      FALSE, sprintf("release contract is missing %s", missing[[1L]])
+    ))
+  }
+  if (!identical(as.character(contract$schema_version),
+                 INV_RELEASE_CONTRACT_SCHEMA_VERSION) ||
+      !identical(as.character(contract$producer_schema_version),
+                 INV_PRODUCER_SCHEMA_VERSION) ||
+      !identical(as.character(contract$bundle_schema_version),
+                 INV_BUNDLE_SCHEMA_VERSION)) {
+    return(inv_contract_result(FALSE, "release contract schema family is invalid"))
+  }
+  if (!inv_scalar_text(contract$science_version) ||
+      !isTRUE(contract$support_index_only)) {
+    return(inv_contract_result(FALSE,
+                               "release contract science/support boundary is invalid"))
+  }
+  source_check <- inv_source_identity(contract$source)
+  if (!isTRUE(source_check)) return(source_check)
+  metric_check <- inv_require_columns(
+    contract$metric_contract, c("metric", "table", "column", "grain",
+                                "denominator", "boundary"),
+    "release contract metric_contract"
+  )
+  if (!isTRUE(metric_check)) return(metric_check)
+  if (!is.list(contract$qc_contract) ||
+      !identical(as.character(contract$qc_contract$schema_version),
+                 INV_QC_AUDIT_SCHEMA_VERSION) ||
+      !isTRUE(contract$qc_contract$retain_verbatim) ||
+      !identical(contract$qc_contract$automatic_exclusion, FALSE) ||
+      !identical(as.character(contract$qc_contract$eligibility_effect), "none")) {
+    return(inv_contract_result(FALSE, "release contract QC policy is invalid"))
+  }
+  sites <- as.character(contract$site_ids)
+  if (!length(sites) || any(is.na(inv_chr(sites))) || anyDuplicated(sites)) {
+    return(inv_contract_result(FALSE,
+                               "release contract site roster is empty or non-unique"))
+  }
+  if (!is.null(expected_sites) &&
+      !identical(sites, as.character(expected_sites))) {
+    return(inv_contract_result(FALSE,
+                               "release contract site roster is not canonical"))
+  }
+  hashes <- contract$bundle_sha256
+  if (is.null(names(hashes)) || !identical(names(hashes), sites) ||
+      !all(vapply(hashes, inv_sha256_text, logical(1)))) {
+    return(inv_contract_result(FALSE,
+                               "release contract bundle hashes are incomplete"))
+  }
+  if (!identical(as.character(contract$bundle_members),
+                 INV_REQUIRED_BUNDLE_MEMBERS)) {
+    return(inv_contract_result(FALSE,
+                               "release contract bundle members are invalid"))
+  }
+  prohibited <- c(
+    "density_m2", "mean_sample_density_m2", "richness", "ept_richness",
+    "pct_ept", "chao1", "rarefied_richness", "health_score"
+  )
+  if (!all(prohibited %in% contract$prohibited_cross_site_fields)) {
+    return(inv_contract_result(FALSE,
+                               "release contract cross-site boundary is incomplete"))
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_validate_qc <- function(qc, opportunities, expected_site) {
+  if (!is.list(qc)) return(inv_contract_result(FALSE, "qc is not a list"))
+  required <- c(
+    "contract", "status_counts", "source_rows", "source_quality",
+    "issue_log", "reconciliation"
+  )
+  missing <- setdiff(required, names(qc))
+  if (length(missing)) {
+    return(inv_contract_result(FALSE, sprintf("qc is missing %s", missing[[1L]])))
+  }
+  if (!is.list(qc$contract) ||
+      !identical(as.character(qc$contract$schema_version),
+                 INV_QC_AUDIT_SCHEMA_VERSION) ||
+      !isTRUE(qc$contract$retain_verbatim) ||
+      !identical(qc$contract$automatic_exclusion, FALSE) ||
+      !identical(as.character(qc$contract$eligibility_effect), "none")) {
+    return(inv_contract_result(FALSE, "qc contract is invalid"))
+  }
+  status_check <- inv_require_columns(
+    qc$status_counts, c("record_status", "n"), "qc$status_counts"
+  )
+  if (!isTRUE(status_check)) return(status_check)
+  if (!identical(as.character(qc$status_counts$record_status),
+                 INV_RECORD_STATUS_LEVELS) ||
+      any(!is.finite(num(qc$status_counts$n)) | num(qc$status_counts$n) < 0)) {
+    return(inv_contract_result(FALSE, "qc status ledger is invalid"))
+  }
+  source_rows_check <- inv_require_columns(
+    qc$source_rows, INV_SOURCE_ROW_COLUMNS, "qc$source_rows"
+  )
+  if (!isTRUE(source_rows_check)) return(source_rows_check)
+  if (nrow(qc$source_rows) != 1L ||
+      !identical(as.character(qc$source_rows$site), expected_site)) {
+    return(inv_contract_result(FALSE, "qc source-row receipt is not site-specific"))
+  }
+  source_row_values <- num(unlist(
+    qc$source_rows[setdiff(INV_SOURCE_ROW_COLUMNS, "site")],
+    use.names = FALSE
+  ))
+  if (any(!is.finite(source_row_values) | source_row_values < 0)) {
+    return(inv_contract_result(FALSE, "qc source-row counts are invalid"))
+  }
+  if (!is.list(qc$source_quality) ||
+      !identical(names(qc$source_quality), names(INV_SOURCE_QUALITY_COLUMNS))) {
+    return(inv_contract_result(FALSE,
+                               "qc$source_quality has an invalid table family"))
+  }
+  for (table_name in names(INV_SOURCE_QUALITY_COLUMNS)) {
+    check <- inv_require_columns(
+      qc$source_quality[[table_name]], INV_SOURCE_QUALITY_COLUMNS[[table_name]],
+      paste0("qc$source_quality$", table_name)
+    )
+    if (!isTRUE(check)) return(check)
+    rows <- qc$source_quality[[table_name]]
+    row_sites <- as.character(rows$siteID)
+    if (nrow(rows) && any(is.na(row_sites) | row_sites != expected_site)) {
+      return(inv_contract_result(FALSE,
+                                 "qc source-quality row belongs to another site"))
+    }
+  }
+  issue_check <- inv_require_columns(qc$issue_log, INV_ISSUE_LOG_COLUMNS,
+                                     "qc$issue_log")
+  if (!isTRUE(issue_check)) return(issue_check)
+  issue_sites <- as.character(qc$issue_log$bundle_site)
+  if (nrow(qc$issue_log) &&
+      any(is.na(issue_sites) | issue_sites != expected_site)) {
+    return(inv_contract_result(FALSE, "qc issue annotation belongs to another site"))
+  }
+  reconciliation <- qc$reconciliation
+  if (!is.list(reconciliation)) {
+    return(inv_contract_result(FALSE, "qc reconciliation is not a list"))
+  }
+  missing <- setdiff(c(INV_RECONCILIATION_SCALARS, "source_qc_rows_retained"),
+                     names(reconciliation))
+  if (length(missing)) {
+    return(inv_contract_result(
+      FALSE, sprintf("qc reconciliation is missing %s", missing[[1L]])
+    ))
+  }
+  retained <- reconciliation$source_qc_rows_retained
+  expected_retained <- c(
+    field = nrow(qc$source_quality$field),
+    per_sample = nrow(qc$source_quality$per_sample),
+    taxonomy_processed = nrow(qc$source_quality$taxonomy_processed),
+    issue_log = nrow(qc$issue_log)
+  )
+  if (!identical(names(retained), names(expected_retained)) ||
+      !identical(num(retained), num(expected_retained))) {
+    return(inv_contract_result(FALSE,
+                               "qc retained-row reconciliation is inconsistent"))
+  }
+  expected_status <- table(factor(
+    as.character(opportunities$record_status), levels = INV_RECORD_STATUS_LEVELS
+  ))
+  expected_reconciliation <- c(
+    primary_opportunities = sum(inv_true(opportunities$primary_stratum)),
+    count_eligible_samples = sum(inv_true(opportunities$count_eligible)),
+    composition_eligible_samples = sum(
+      inv_true(opportunities$count_eligible) &
+        is.finite(num(opportunities$total_estimated_count)) &
+        num(opportunities$total_estimated_count) > 0
+    ),
+    density_eligible_samples = sum(inv_true(opportunities$density_eligible)),
+    reported_zero_count = sum(inv_true(opportunities$reported_zero_count)),
+    unstratifiable = sum(inv_true(opportunities$unstratifiable)),
+    taxonomy_rows_collapsed = sum(num(opportunities$taxonomy_rows))
+  )
+  reconciliation_matches <- all(vapply(
+    names(expected_reconciliation), function(name) {
+      identical(num(reconciliation[[name]]),
+                num(expected_reconciliation[[name]]))
+    }, logical(1)
+  ))
+  source_rows_match <-
+    identical(num(qc$source_rows$collection_field_rows),
+              as.numeric(nrow(opportunities))) &&
+    identical(num(qc$source_rows$field_qc_rows),
+              num(qc$source_rows$collection_field_rows) +
+                num(qc$source_rows$metabarcode_field_rows)) &&
+    identical(num(qc$source_rows$field_qc_rows),
+              as.numeric(nrow(qc$source_quality$field))) &&
+    identical(num(qc$source_rows$per_sample_rows),
+              as.numeric(nrow(qc$source_quality$per_sample))) &&
+    identical(num(qc$source_rows$per_sample_qc_rows),
+              as.numeric(nrow(qc$source_quality$per_sample))) &&
+    identical(num(qc$source_rows$taxonomy_processed_rows),
+              as.numeric(nrow(qc$source_quality$taxonomy_processed))) &&
+    identical(num(qc$source_rows$taxonomy_qc_rows),
+              as.numeric(nrow(qc$source_quality$taxonomy_processed))) &&
+    identical(num(qc$source_rows$issue_log_rows),
+              as.numeric(nrow(qc$issue_log)))
+  if (!identical(num(qc$status_counts$n), num(expected_status)) ||
+      !identical(num(reconciliation$opportunity_rows),
+                 as.numeric(nrow(opportunities))) ||
+      !identical(num(reconciliation$status_rows),
+                 as.numeric(nrow(opportunities))) ||
+      !isTRUE(reconciliation$opportunity_complete) ||
+      !isTRUE(reconciliation$count_contains_density) ||
+      !reconciliation_matches || !source_rows_match ||
+      !identical(reconciliation$qc_alters_metric_eligibility, FALSE)) {
+    return(inv_contract_result(FALSE, "qc reconciliation differs from bundle rows"))
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_validate_bundle <- function(bundle, expected_site = NULL,
+                                release_contract = NULL) {
+  if (!is.list(bundle)) return(inv_contract_result(FALSE, "bundle is not a list"))
+  missing <- setdiff(INV_REQUIRED_BUNDLE_MEMBERS, names(bundle))
+  if (length(missing)) {
+    return(inv_contract_result(
+      FALSE, sprintf("bundle is missing member %s", missing[[1L]])
+    ))
+  }
+  if (!identical(names(bundle), INV_REQUIRED_BUNDLE_MEMBERS)) {
+    return(inv_contract_result(FALSE,
+                               "bundle members/order differ from the release family"))
+  }
+  legacy <- intersect(c("bouts", "samples", "taxa", "qc_samples"), names(bundle))
+  if (length(legacy)) {
+    return(inv_contract_result(
+      FALSE, sprintf("legacy bundle member is prohibited: %s", legacy[[1L]])
+    ))
+  }
+  if (!identical(as.character(bundle$schema_version), INV_BUNDLE_SCHEMA_VERSION)) {
+    return(inv_contract_result(FALSE, "bundle schema_version is not 2.0.0"))
+  }
+
+  checks <- list(
+    inv_require_columns(bundle$opportunities, INV_OPPORTUNITY_COLUMNS,
+                        "opportunities"),
+    inv_require_columns(bundle$event_strata, INV_EVENT_COLUMNS, "event_strata"),
+    inv_require_columns(bundle$taxon_strata, INV_TAXON_COLUMNS, "taxon_strata"),
+    inv_require_columns(bundle$site_summary,
+                        c("siteID", "collectDate_min", "collectDate_max",
+                          "n_events", "n_strata", "n_opportunities",
+                          "n_sampling_impractical", "n_nonstandard_collection",
+                          "n_unstratifiable", "n_processed_no_taxonomy",
+                          "n_count_samples", "n_density_samples",
+                          "n_taxa_recorded", "taxonomic_ranks"),
+                        "site_summary"),
+    inv_require_columns(bundle$metric_contract,
+                        c("metric", "grain", "denominator", "boundary"),
+                        "metric_contract")
+  )
+  bad <- which(!vapply(checks, isTRUE, logical(1)))
+  if (length(bad)) return(checks[[bad[[1L]]]])
+  if (!nrow(bundle$opportunities)) {
+    return(inv_contract_result(FALSE, "opportunity ledger is empty"))
+  }
+  if (nrow(bundle$site_summary) != 1L) {
+    return(inv_contract_result(FALSE, "site_summary must contain exactly one row"))
+  }
+  if (!is.list(bundle$meta) || !is.list(bundle$qc) ||
+      !is.list(bundle$provenance)) {
+    return(inv_contract_result(FALSE, "meta, qc, and provenance must be lists"))
+  }
+  missing_meta <- setdiff(INV_META_FIELDS, names(bundle$meta))
+  if (length(missing_meta)) {
+    return(inv_contract_result(
+      FALSE, sprintf("meta is missing field %s", missing_meta[[1L]])
+    ))
+  }
+
+  site <- as.character(bundle$meta$site %||% NA_character_)
+  if (length(site) != 1L || is.na(site) || !nzchar(site)) {
+    return(inv_contract_result(FALSE, "meta$site must be one nonblank code"))
+  }
+  if (!is.null(expected_site) && !identical(site, as.character(expected_site))) {
+    return(inv_contract_result(FALSE, "bundle site does not match requested site"))
+  }
+  if (!identical(as.character(bundle$meta$schema_version),
+                 INV_BUNDLE_SCHEMA_VERSION) ||
+      !identical(as.character(bundle$meta$release), INV_EXPECTED_RELEASE)) {
+    return(inv_contract_result(FALSE, "bundle meta is outside the release family"))
+  }
+  site_members <- c(
+    as.character(bundle$opportunities$siteID),
+    as.character(bundle$event_strata$siteID),
+    as.character(bundle$taxon_strata$siteID),
+    as.character(bundle$site_summary$siteID)
+  )
+  site_members <- site_members[!is.na(site_members)]
+  if (!length(site_members) || any(site_members != site)) {
+    return(inv_contract_result(FALSE, "bundle tables do not resolve to meta$site"))
+  }
+  if (anyDuplicated(bundle$opportunities$opportunity_id)) {
+    return(inv_contract_result(FALSE, "opportunity_id is not unique"))
+  }
+  summary_row <- bundle$site_summary[1L, , drop = FALSE]
+  boolean_fields <- c(
+    "sampling_practical", "primary_stratum", "unstratifiable",
+    "nonstandard_collection", "count_eligible", "density_eligible",
+    "reported_zero_count"
+  )
+  valid_booleans <- vapply(boolean_fields, function(field) {
+    values <- bundle$opportunities[[field]]
+    is.logical(values) && length(values) == nrow(bundle$opportunities) &&
+      !anyNA(values)
+  }, logical(1))
+  if (!all(valid_booleans)) {
+    return(inv_contract_result(
+      FALSE, sprintf("opportunity boolean %s is invalid",
+                     boolean_fields[which(!valid_booleans)[[1L]]])
+    ))
+  }
+  status <- as.character(bundle$opportunities$record_status)
+  if (any(is.na(status) | !status %in% INV_RECORD_STATUS_LEVELS)) {
+    return(inv_contract_result(FALSE, "opportunity ledger has an unknown status"))
+  }
+  expected_summary_counts <- c(
+    n_opportunities = nrow(bundle$opportunities),
+    n_sampling_impractical = sum(!bundle$opportunities$sampling_practical),
+    n_nonstandard_collection = sum(bundle$opportunities$nonstandard_collection),
+    n_unstratifiable = sum(bundle$opportunities$unstratifiable),
+    n_processed_no_taxonomy = sum(status == "processed_no_taxonomy"),
+    n_count_samples = sum(bundle$opportunities$count_eligible),
+    n_density_samples = sum(bundle$opportunities$density_eligible)
+  )
+  for (summary_name in names(expected_summary_counts)) {
+    if (!identical(num(summary_row[[summary_name]]),
+                   num(expected_summary_counts[[summary_name]]))) {
+      return(inv_contract_result(
+        FALSE, sprintf("site_summary$%s differs from opportunity support flags",
+                       summary_name)
+      ))
+    }
+  }
+  summary_map <- c(
+    n_events = "n_events", n_strata = "n_strata",
+    n_opportunities = "n_opportunities",
+    n_count_samples = "n_count_samples",
+    n_density_samples = "n_density_samples",
+    n_unstratifiable = "n_unstratifiable",
+    n_taxa_recorded = "n_taxa_recorded"
+  )
+  for (meta_name in names(summary_map)) {
+    summary_name <- summary_map[[meta_name]]
+    if (!identical(num(bundle$meta[[meta_name]]),
+                   num(summary_row[[summary_name]]))) {
+      return(inv_contract_result(
+        FALSE, sprintf("meta$%s differs from site_summary$%s",
+                       meta_name, summary_name)
+      ))
+    }
+  }
+  if (!identical(as.character(bundle$meta$taxonomic_ranks),
+                 as.character(summary_row$taxonomic_ranks))) {
+    return(inv_contract_result(FALSE,
+                               "meta taxonomic ranks differ from site_summary"))
+  }
+  composition_eligible <- bundle$opportunities$count_eligible &
+    is.finite(num(bundle$opportunities$total_estimated_count)) &
+    num(bundle$opportunities$total_estimated_count) > 0
+  expected_meta_counts <- c(
+    n_opportunities = nrow(bundle$opportunities),
+    n_primary_opportunities = sum(bundle$opportunities$primary_stratum),
+    n_count_samples = sum(bundle$opportunities$count_eligible),
+    n_composition_samples = sum(composition_eligible),
+    n_density_samples = sum(bundle$opportunities$density_eligible),
+    n_reported_zero_count = sum(bundle$opportunities$reported_zero_count),
+    n_unstratifiable = sum(bundle$opportunities$unstratifiable)
+  )
+  for (meta_name in names(expected_meta_counts)) {
+    if (!identical(num(bundle$meta[[meta_name]]),
+                   num(expected_meta_counts[[meta_name]]))) {
+      return(inv_contract_result(
+        FALSE, sprintf("meta$%s differs from opportunity support flags",
+                       meta_name)
+      ))
+    }
+  }
+  count_ok <- inv_true(bundle$opportunities$count_eligible)
+  density_ok <- inv_true(bundle$opportunities$density_eligible)
+  reported_zero <- inv_true(bundle$opportunities$reported_zero_count)
+  if (any(density_ok & !count_ok)) {
+    return(inv_contract_result(FALSE, "density eligibility is not a subset of count eligibility"))
+  }
+  zero_values <- num(bundle$opportunities$total_estimated_count)
+  if (any(reported_zero & (!count_ok | !is.finite(zero_values) | zero_values != 0))) {
+    return(inv_contract_result(FALSE, "reported-zero semantics are inconsistent"))
+  }
+  if (!isTRUE(bundle$provenance$field_first) ||
+      !identical(as.character(bundle$provenance$exact_grain), INV_EXACT_GRAIN)) {
+    return(inv_contract_result(FALSE, "field-first exact-grain provenance is absent"))
+  }
+  provenance_fields <- c(
+    "source", "producer_schema_version", "science_version", "field_first",
+    "exact_grain", "qc_contract", "prohibited_inference"
+  )
+  missing_provenance <- setdiff(provenance_fields, names(bundle$provenance))
+  if (length(missing_provenance)) {
+    return(inv_contract_result(
+      FALSE, sprintf("provenance is missing %s", missing_provenance[[1L]])
+    ))
+  }
+  if (!identical(as.character(bundle$provenance$producer_schema_version),
+                 INV_PRODUCER_SCHEMA_VERSION) ||
+      !inv_scalar_text(bundle$provenance$science_version)) {
+    return(inv_contract_result(FALSE, "producer/science provenance is invalid"))
+  }
+  source_check <- inv_source_identity(bundle$provenance$source)
+  if (!isTRUE(source_check)) return(source_check)
+  if (!identical(as.character(bundle$meta$source_stamp),
+                 as.character(bundle$provenance$source$publication_date_max))) {
+    return(inv_contract_result(FALSE, "bundle source stamp differs from provenance"))
+  }
+  required_metrics <- c(
+    "mean_sample_density_m2", "mean_sample_taxa_observed",
+    "mean_sample_pct_ept_of_all_estimated_count", "taxon_support_pct",
+    "taxon_total_estimated_count"
+  )
+  if (!all(required_metrics %in% bundle$metric_contract$metric)) {
+    return(inv_contract_result(FALSE, "metric contract is incomplete"))
+  }
+  metric_grain <- as.character(bundle$metric_contract$grain)
+  if (any(is.na(metric_grain) |
+          !startsWith(metric_grain, INV_EXACT_GRAIN))) {
+    return(inv_contract_result(FALSE, "metric contract leaves the exact grain"))
+  }
+  qc_check <- inv_validate_qc(bundle$qc, bundle$opportunities, site)
+  if (!isTRUE(qc_check)) return(qc_check)
+  if (!identical(bundle$provenance$qc_contract, bundle$qc$contract)) {
+    return(inv_contract_result(FALSE,
+                               "QC provenance differs from the bundle QC contract"))
+  }
+  if (!is.null(release_contract)) {
+    contract_check <- inv_validate_release_contract(release_contract)
+    if (!isTRUE(contract_check)) return(contract_check)
+    if (!site %in% as.character(release_contract$site_ids) ||
+        !identical(unname(as.character(bundle$provenance$science_version)),
+                   unname(as.character(release_contract$science_version))) ||
+        !inv_source_identity_equal(bundle$provenance$source,
+                                   release_contract$source) ||
+        !identical(bundle$metric_contract, release_contract$metric_contract) ||
+        !identical(bundle$qc$contract, release_contract$qc_contract)) {
+      return(inv_contract_result(FALSE,
+                                 "bundle identity differs from release contract"))
+    }
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_validate_site_index <- function(index, release_contract = NULL) {
+  check <- inv_require_columns(index, INV_SITE_INDEX_COLUMNS, "site_index")
+  if (!isTRUE(check)) return(check)
+  if (!identical(names(index), INV_SITE_INDEX_COLUMNS)) {
+    return(inv_contract_result(FALSE,
+                               "site_index columns differ from support-only schema"))
+  }
+  if (!nrow(index) || anyDuplicated(index$site) || any(is.na(inv_chr(index$site)))) {
+    return(inv_contract_result(FALSE, "site_index roster is empty or non-unique"))
+  }
+  prohibited <- intersect(
+    c("density_m2", "mean_sample_density_m2", "richness", "ept_richness",
+      "pct_ept_ind", "pct_ept_taxa", "hill_q1", "health_score"),
+    names(index)
+  )
+  if (length(prohibited)) {
+    return(inv_contract_result(
+      FALSE, sprintf("site_index contains prohibited comparison field %s",
+                     prohibited[[1L]])
+    ))
+  }
+  count_fields <- c(
+    "n_events", "n_strata", "n_opportunities", "n_primary_opportunities",
+    "n_count_samples", "n_composition_samples", "n_density_samples",
+    "n_reported_zero_count", "n_unstratifiable", "n_taxa_recorded",
+    "n_sampling_impractical", "n_nonstandard_collection",
+    "n_processed_no_taxonomy", "n_count_unavailable", "n_area_unavailable",
+    "n_density_unavailable"
+  )
+  count_values <- as.matrix(data.frame(lapply(index[count_fields], num)))
+  if (any(!is.finite(count_values) | count_values < 0)) {
+    return(inv_contract_result(FALSE,
+                               "site_index support counts are invalid"))
+  }
+  if (!is.null(release_contract)) {
+    contract_check <- inv_validate_release_contract(release_contract)
+    if (!isTRUE(contract_check)) return(contract_check)
+    source_stamp <- inv_chr(index$source_stamp)
+    science_version <- inv_chr(index$science_version)
+    if (!identical(as.character(index$site),
+                   as.character(release_contract$site_ids)) ||
+        any(is.na(source_stamp) | source_stamp !=
+              as.character(release_contract$source$publication_date_max)) ||
+        any(is.na(science_version) | science_version !=
+              as.character(release_contract$science_version))) {
+      return(inv_contract_result(FALSE,
+                                 "site_index identity differs from release contract"))
+    }
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_validate_search_index <- function(index, release_contract = NULL,
+                                      site_index = NULL) {
+  expected_members <- c(
+    "schema_version", "taxa", "sites", "metric_contract", "source", "built",
+    "boundary"
+  )
+  if (!is.list(index) || !identical(names(index), expected_members)) {
+    return(inv_contract_result(FALSE, "search_index members are incomplete"))
+  }
+  if (!identical(as.character(index$schema_version),
+                 INV_PRODUCER_SCHEMA_VERSION)) {
+    return(inv_contract_result(FALSE, "search_index schema version is invalid"))
+  }
+  taxa_check <- inv_require_columns(
+    index$taxa, INV_SEARCH_TAXON_COLUMNS,
+    "search_index$taxa"
+  )
+  if (!isTRUE(taxa_check)) return(taxa_check)
+  if (!identical(names(index$taxa), INV_SEARCH_TAXON_COLUMNS)) {
+    return(inv_contract_result(FALSE,
+                               "search_index taxon columns differ from support schema"))
+  }
+  if (nrow(index$taxa)) {
+    denominator <- num(index$taxa$n_count_eligible_samples)
+    present <- num(index$taxa$n_samples_present)
+    support <- num(index$taxa$support_pct)
+    if (any(!is.finite(denominator) | denominator <= 0 |
+            !is.finite(present) | present <= 0 | present > denominator |
+            !is.finite(support) | support <= 0 | support > 100)) {
+      return(inv_contract_result(FALSE,
+                                 "search_index taxon support is invalid"))
+    }
+  }
+  site_check <- inv_validate_site_index(index$sites, release_contract)
+  if (!isTRUE(site_check)) return(site_check)
+  source_check <- inv_source_identity(index$source)
+  if (!isTRUE(source_check)) return(source_check)
+  if (!is.null(site_index) && !identical(index$sites, site_index)) {
+    return(inv_contract_result(FALSE,
+                               "search_index site table differs from site_index"))
+  }
+  if (!is.null(release_contract) &&
+      (!inv_source_identity_equal(index$source, release_contract$source) ||
+       !identical(index$metric_contract, release_contract$metric_contract) ||
+       !identical(as.character(index$built),
+                  as.character(release_contract$source$publication_date_max)))) {
+    return(inv_contract_result(FALSE,
+                               "search_index identity differs from release contract"))
+  }
+  inv_contract_result(TRUE)
+}
+
+inv_year_label <- function(meta) {
+  lo <- suppressWarnings(as.Date(meta$collectDate_min %||% NA_character_))
+  hi <- suppressWarnings(as.Date(meta$collectDate_max %||% NA_character_))
+  if (is.na(lo) || is.na(hi)) return("date range unavailable")
+  yl <- format(lo, "%Y")
+  yh <- format(hi, "%Y")
+  if (identical(yl, yh)) yl else paste0(yl, "–", yh)
+}
+
+inv_value <- function(x, digits = 0L, suffix = "") {
+  value <- suppressWarnings(as.numeric(x))
+  if (length(value) != 1L || !is.finite(value)) return("Unavailable")
+  paste0(format(round(value, digits), big.mark = ",", trim = TRUE,
+                nsmall = digits), suffix)
+}
+
+inv_status_ledger <- function(opportunities) {
+  counts <- table(factor(
+    as.character(opportunities$record_status), levels = INV_RECORD_STATUS_LEVELS
+  ))
+  out <- merge(
+    INV_STATUS_META,
+    data.frame(record_status = names(counts), n = as.integer(counts),
+               stringsAsFactors = FALSE),
+    by = "record_status", all.x = TRUE, sort = FALSE
+  )
+  out <- out[match(INV_RECORD_STATUS_LEVELS, out$record_status), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
+# These support conditions can overlap the dominant record_status. For example,
+# a usable reported zero with no benthic area has record_status =
+# "area_unavailable" and reported_zero_count = TRUE. Never use the mutually
+# exclusive status ledger to total these flags.
+inv_support_counts <- function(opportunities) {
+  if (is.null(opportunities) || !nrow(opportunities)) {
+    return(c(
+      sampling_impractical = 0L, nonstandard_collection = 0L,
+      unstratifiable = 0L, reported_zero_count = 0L
+    ))
+  }
+  practical <- as.logical(opportunities$sampling_practical)
+  c(
+    sampling_impractical = sum(practical %in% FALSE),
+    nonstandard_collection = sum(
+      as.logical(opportunities$nonstandard_collection) %in% TRUE
+    ),
+    unstratifiable = sum(as.logical(opportunities$unstratifiable) %in% TRUE),
+    reported_zero_count = sum(
+      as.logical(opportunities$reported_zero_count) %in% TRUE
+    )
+  )
+}
+
+inv_stratum_label <- function(row, include_event = TRUE) {
+  event <- if (isTRUE(include_event)) paste0(row$eventID, " · ") else ""
+  paste0(
+    event, row$aquaticSiteType, " · ", row$habitatType, " · ", row$samplerType
+  )
+}
+
+inv_stratum_choices <- function(strata) {
+  if (is.null(strata) || !nrow(strata)) return(character())
+  labels <- vapply(seq_len(nrow(strata)), function(i) {
+    inv_stratum_label(strata[i, , drop = FALSE], include_event = TRUE)
+  }, character(1))
+  stats::setNames(as.character(strata$stratum_key), labels)
+}
+
+inv_taxon_label <- function(scientific_name, rank, is_ept = FALSE) {
+  nm <- inv_chr(scientific_name)
+  rk <- inv_chr(rank)
+  ifelse(
+    is.na(nm), "Unnamed taxon",
+    paste0(nm, ifelse(is.na(rk), " [rank unavailable]", paste0(" [", rk, "]")),
+           ifelse(inv_true(is_ept), " · EPT", ""))
+  )
+}
+
+inv_taxa_for_stratum <- function(taxa, key) {
+  if (is.null(taxa) || !nrow(taxa) || is.null(key) || !nzchar(key)) {
+    return(taxa[0, , drop = FALSE])
+  }
+  out <- taxa[as.character(taxa$stratum_key) == as.character(key), , drop = FALSE]
+  if (!nrow(out)) return(out)
+  out$taxon_label <- inv_taxon_label(out$scientificName, out$taxonRank,
+                                     out$is_ept)
+  out[order(-num(out$support_pct), -num(out$total_estimated_count),
+            out$taxon_label), , drop = FALSE]
+}
+
+inv_opportunity_export <- function(opportunities) {
+  keep <- intersect(
+    c("opportunity_id", "sampleID", "sampleCode", "siteID", "eventID",
+      "collectDate", "aquaticSiteType", "habitatType", "samplerType",
+      "namedLocation", "samplingImpractical", "record_status",
+      "primary_stratum", "taxonomy_rows", "count_issue", "density_issue",
+      "benthicArea_m2", "total_estimated_count", "count_eligible",
+      "density_eligible", "reported_zero_count", "sample_density_m2",
+      "taxa_observed", "ept_taxa_observed",
+      "pct_ept_of_all_estimated_count",
+      "pct_order_classified_estimated_count"),
+    names(opportunities)
+  )
+  opportunities[, keep, drop = FALSE]
+}
+
 inv_codebook <- function() {
-  bout <- data.frame(
-    column = c("eventID","siteID","collectDate","year","n_samples","habitatType","samplerType",
-               "mixed_habitat","mixed_sampler","density_m2","richness","ept_richness","pct_ept_ind",
-               "pct_ept_taxa","hill_q1","hill_q2","pct_dominant","pct_chironomidae","pct_oligochaeta",
-               "total_individuals","chao1","chao1_se","rarefied_richness","small_n"),
-    units = c("","","date","year","# samples","","","logical","logical","individuals / m2","# taxa",
-              "# EPT taxa","% of individuals","% of taxa","effective # taxa","effective # taxa",
-              "%","%","%","# individuals (est.)","# taxa","# taxa","# taxa","logical"),
-    description = c(
-      "NEON collection-bout identifier (site + collect date). One bout = one site visit's set of samples.",
-      "NEON 4-letter aquatic site code.",
-      "Date the bout's samples were collected (earliest sample date).",
-      "Calendar year of the bout.",
-      "Number of benthic samples taken in the bout.",
-      "Dominant habitat sampled in the bout (riffle, run, pool, ...). Habitat strongly shapes the community.",
-      "Dominant sampler type used (Surber, core, kicknet, ...). Different samplers weight habitats differently; compare within a sampler type.",
-      "TRUE if the bout combined more than one habitat type.",
-      "TRUE if the bout combined more than one sampler type.",
-      "DENSITY = estimated individuals / m2 sampled (estimatedTotalCount / benthicArea), averaged over the bout's samples. A WITHIN-SITE standardized density index, NOT an absolute population. NA where no usable benthic area.",
-      "Observed taxon richness (distinct accepted taxa) in the bout.",
-      "Number of EPT (Ephemeroptera, Plecoptera, Trichoptera) taxa in the bout.",
-      "EPT share of estimated individuals (the lead %EPT metric). Lakes are naturally EPT-poor; low EPT is not impairment.",
-      "EPT share of taxa (the richness-weighted companion to pct_ept_ind).",
-      "Hill number q=1 (exp Shannon): effective number of common taxa.",
-      "Hill number q=2 (inverse Simpson): effective number of dominant taxa.",
-      "Share of estimated individuals in the single most abundant taxon.",
-      "Chironomidae (non-biting midge) share of estimated individuals — a tolerance / composition surrogate.",
-      "Oligochaeta (aquatic worm) share of estimated individuals — a tolerance / composition surrogate.",
-      "Estimated total individuals in the bout (subsample counts scaled to the whole sample).",
-      "Chao1 asymptotic richness estimate (bias-corrected; Chao 1984). NA where small_n (insufficient count).",
-      "Standard error of the Chao1 estimate. NA where small_n.",
-      "Richness rarefied to 100 individuals (Hurlbert 1971), comparable across bouts of different effort. NA where small_n.",
-      "TRUE if the bout has under 100 individuals or under 3 samples; standardized richness (rarefied / Chao1) is suppressed."),
-    stringsAsFactors = FALSE)
+  data.frame(
+    field = c(
+      "record_status", "n_opportunities", "n_count_samples",
+      "n_composition_samples", "n_density_samples", "reported_zero_count",
+      "mean_sample_density_m2", "mean_sample_taxa_observed",
+      "mean_sample_pct_ept_of_all_estimated_count",
+      "mean_sample_pct_order_classified_estimated_count", "support_pct",
+      "total_estimated_count", "taxonRank", "NA"
+    ),
+    interpretation = c(
+      "Mutually exclusive field-first processing state; use the status ledger for definitions.",
+      "All field opportunities in the exact stratum.",
+      "Processed samples with usable expanded counts in the exact stratum.",
+      "Count-eligible samples whose expanded total is positive; denominator for composition means.",
+      "Count-eligible samples with usable benthic area in the exact stratum.",
+      "A usable expanded laboratory count reported as zero; not a field-verified absence.",
+      "Arithmetic mean of sample densities among density-eligible samples in one exact stratum; descriptive collection density only.",
+      "Arithmetic mean of recorded mixed-rank taxon counts among count-eligible samples in one exact stratum.",
+      "Mean sample EPT expanded-count share; all positive counts, including unknown order, remain in the denominator.",
+      "Mean share of positive expanded counts whose order is recorded; classification-support diagnostic.",
+      "Positive-count samples divided by count-eligible samples for one taxon in one exact stratum; eligible samples without the taxon are zero-filled.",
+      "Expanded laboratory count summed over count-eligible samples in one exact stratum; not a population count.",
+      "Identification rank is retained; mixed ranks must not be read as species-only diversity.",
+      "Unavailable or inapplicable under the stated denominator; never silently converted to zero."
+    ),
+    stringsAsFactors = FALSE
+  )
+}
 
-  taxa <- data.frame(
-    column = c("acceptedTaxonID","scientificName","order","family","is_ept","mean_density",
-               "total_est","n_samples_present","ubiquity"),
-    units = c("","","","","logical","individuals / m2","# individuals (est.)","# samples","% of samples"),
-    description = c(
-      "NEON accepted taxon ID.",
-      "Accepted scientific name of the taxon.",
-      "Taxonomic order.",
-      "Taxonomic family.",
-      "TRUE if the taxon is EPT (Ephemeroptera, Plecoptera, or Trichoptera) — the pollution-sensitive groups.",
-      "Mean density of the taxon across the samples it appears in (individuals / m2). The board's x-axis (log scale).",
-      "Estimated total individuals of the taxon across the site (subsample counts scaled up).",
-      "Number of samples the taxon was found in.",
-      "Ubiquity = % of the site's samples the taxon was found in. The board's y-axis."),
-    stringsAsFactors = FALSE)
+inv_provenance_table <- function(bundle) {
+  source <- bundle$provenance$source %||% list()
+  data.frame(
+    item = c(
+      "Data product", "Release", "Provisional included", "Publication through",
+      "Fetched (UTC)", "Raw artifact SHA-256", "Source receipt SHA-256",
+      "Science contract", "Bundle schema", "Analysis grain"
+    ),
+    value = c(
+      source$dpid %||% "Unavailable", source$release %||% "Unavailable",
+      if (isTRUE(source$include_provisional)) "Yes" else "No",
+      source$publication_date_max %||% "Unavailable",
+      source$fetched_at_utc %||% "Unavailable",
+      source$artifact_sha256 %||% "Unavailable",
+      source$receipt_sha256 %||% "Unavailable",
+      bundle$provenance$science_version %||% "Unavailable",
+      bundle$schema_version %||% "Unavailable", INV_EXACT_GRAIN
+    ),
+    stringsAsFactors = FALSE
+  )
+}
 
-  cross <- data.frame(
-    column = c("site","aquaticSiteType","lat","lng","elevation","n_bouts","n_samples","year_min",
-               "year_max","density_m2","richness","ept_richness","pct_ept_ind","pct_ept_taxa","hill_q1",
-               "rarefied_richness","chao1","pct_chironomidae","top_taxon"),
-    units = c("code","lake/river/stream","°","°","m","# bouts","# samples","year","year",
-              "individuals / m2","# taxa","# EPT taxa","% of individuals","% of taxa","effective # taxa",
-              "# taxa","# taxa","%",""),
-    description = c(
-      "Cross-site CSV: NEON 4-letter aquatic site code.",
-      "Cross-site CSV: aquatic site type. Lakes are naturally EPT-poor; do not read low lake EPT as impairment.",
-      "Cross-site CSV: reach latitude.",
-      "Cross-site CSV: reach longitude.",
-      "Cross-site CSV: reach elevation (m).",
-      "Cross-site CSV: number of collection bouts.",
-      "Cross-site CSV: number of benthic samples.",
-      "Cross-site CSV: first year sampled.",
-      "Cross-site CSV: last year sampled.",
-      "Cross-site CSV: site mean density index (individuals / m2). Within-site index; compare sites by direction, not raw value.",
-      "Cross-site CSV: site-pooled observed richness.",
-      "Cross-site CSV: site-pooled EPT richness.",
-      "Cross-site CSV: site EPT share of individuals.",
-      "Cross-site CSV: site EPT share of taxa.",
-      "Cross-site CSV: site Hill q1 (effective common taxa).",
-      "Cross-site CSV: site richness rarefied to 100 individuals (NA where small_n).",
-      "Cross-site CSV: site Chao1 asymptotic richness (NA where small_n).",
-      "Cross-site CSV: site Chironomidae share of individuals.",
-      "Cross-site CSV: the site's top taxon by mean density."),
-    stringsAsFactors = FALSE)
+inv_safe_filename <- function(site, suffix, extension = "csv") {
+  paste0("neon-inverts-", tolower(gsub("[^A-Za-z0-9]+", "-", site)), "-",
+         suffix, ".", extension)
+}
 
-  caveat <- data.frame(
-    column = "DENSITY_NOTE", units = "",
-    description = paste0("density_m2 is a WITHIN-SITE standardized density index (individuals / m2), ",
-                         "valid for trends within a site, within a habitat type and sampler type. Across-site ",
-                         "differences reflect habitat and method as much as biology. ", INV_DISCLAIMER),
-    stringsAsFactors = FALSE)
+inv_comparison_choices <- c(
+  n_opportunities = "Field opportunities",
+  n_primary_opportunities = "Primary-stratum opportunities",
+  n_events = "Collection events",
+  n_strata = "Exact event strata",
+  n_count_samples = "Count-eligible samples",
+  n_composition_samples = "Positive-total composition samples",
+  n_density_samples = "Density-eligible samples",
+  n_reported_zero_count = "Reported zero-count samples",
+  n_unstratifiable = "Opportunities with unavailable stratum fields",
+  n_taxa_recorded = "Distinct mixed-rank taxa recorded",
+  n_sampling_impractical = "Sampling-impractical opportunities",
+  n_processed_no_taxonomy = "Processed samples with taxonomy unavailable"
+)
 
-  lic <- data.frame(
-    column = "_source", units = "license",
-    description = "Source: NEON DP1.20120.001, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); aggregated and derived by this app.",
-    stringsAsFactors = FALSE)
-
-  rbind(lic, bout, taxa, cross, caveat)
+inv_comparison_label <- function(key) {
+  unname(inv_comparison_choices[[key]]) %||% key
 }

@@ -1,0 +1,9 @@
+{
+  "name": "neon-my-little-inverts-ci",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Locked browser dependency for the post-deploy Connect session probe.",
+  "devDependencies": {
+    "playwright": "1.55.0"
+  }
+}

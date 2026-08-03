@@ -1,0 +1,61 @@
+name: Verify My Little Inverts production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RSPM: https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15
+  RENV_CONFIG_REPOS_OVERRIDE: https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15
+
+concurrency:
+  group: inverts-production-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up pinned R
+        uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          r-version: "4.5.2"
+          use-public-rspm: false
+
+      - name: Install identity-verifier dependencies
+        uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          packages: jsonlite, digest
+          pak-version: stable
+          dependencies: '"hard"'
+          cache-version: inverts-production-identity-v1
+          install-pandoc: "false"
+          install-quarto: "false"
+
+      - name: Recompute the committed identity from exact main bytes
+        run: |
+          INV_RELEASE_IDENTITY_MODE=verify INV_WRITE_PAGES_RELEASE=1 \
+            Rscript --vanilla scripts/write_release_identity.R
+
+      - name: Wait for exact Pages and Connect HTTP identity
+        run: bash scripts/post_deploy_smoke.sh
+
+      - name: Install the pinned Connect browser probe
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Prove a live bidirectional Shiny session
+        run: node scripts/post_deploy_browser.mjs

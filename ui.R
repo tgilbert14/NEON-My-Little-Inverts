@@ -1,274 +1,437 @@
 # ===========================================================================
-# NEON My Little Inverts — ui.R
-# v2 flow: no sidebar. A national picker MAP is the primary site selector (34
-# aquatic sites, sized by survey effort, coloured by aquatic type lake/river/
-# stream). A .select-panel beside the map is the by-name fallback. A slim
-# .top-bar carries the brand + theme toggle + How-it-works. The loaded view's
-# hero band carries "change site" (re-shows the picker) + a "Report" download.
-# No demo CTA — users pick a real site. Bundles load whole (no date window).
+# NEON My Little Inverts — field-first loaded experience
 # ===========================================================================
+
+inverts_poster <- function() {
+  tags$section(
+    class = "inverts-poster",
+    `aria-labelledby` = "inverts-poster-title",
+    div(class = "inv-poster-copy",
+      div(class = "inv-poster-topline",
+        div(class = "inv-poster-brand", "Desert Data Labs"),
+        tags$nav(class = "inv-poster-nav", `aria-label` = "NEON Explorer Suite",
+          tags$a(class = "inv-poster-suite-link",
+            href = "https://tgilbert14.github.io/NEON-Driver-Cascade/",
+            "Whole suite: ", tags$strong("Driver Cascade"),
+            tags$span(`aria-hidden` = "true", "↗")))),
+      div(class = "inv-poster-app", "NEON My Little Inverts · unofficial"),
+      h1(id = "inverts-poster-title", `aria-label` = "What lives below the surface?",
+        tags$span("What lives"), tags$em("below the surface?")),
+      p(class = "inv-poster-promise",
+        "Explore the aquatic invertebrates NEON recorded in stream, river, and lake-bottom samples."),
+      tags$a(class = "inv-poster-cta", href = "#site-picker-start",
+        onclick = "window.setTimeout(function(){var target=document.getElementById('site-picker-start');if(target){target.focus({preventScroll:true});}},0)",
+        "Choose an aquatic site", tags$span(`aria-hidden` = "true", " ↓")),
+      p(class = "inv-poster-note",
+        "Public NEON DP1.20120.001 · collection records—not verified zeros, population counts, or water-quality scores.")),
+    tags$figure(class = "inv-poster-art",
+      tags$picture(
+        tags$source(
+          type = "image/webp",
+          srcset = paste(
+            paste0(asset_url("assets/inverts-living-poster-v2-840.webp"), " 840w,"),
+            paste0(asset_url("assets/inverts-living-poster-v2.webp"), " 1672w")
+          ),
+          sizes = "(max-width: 700px) 100vw, 58vw"
+        ),
+        tags$img(
+          src = asset_url("assets/inverts-living-poster-v2.png"),
+          alt = paste(
+            "Editorial screenprint of a mayfly nymph, a case-bearing caddisfly larva,",
+            "a freshwater snail, and an aquatic crustacean among submerged stones",
+            "and leaves beside field tags."
+          ),
+          width = "1672", height = "941", fetchpriority = "high",
+          decoding = "async"
+        )
+      ),
+      tags$figcaption(
+        "Editorial illustration—not a field photograph or data record."
+      )
+    )
+  )
+}
+
 ui <- bslib::page_fillable(
-  theme = app_theme, title = NULL,
-  window_title = "NEON My Little Inverts", fillable = FALSE,
+  theme = app_theme,
+  title = NULL,
+  window_title = "NEON My Little Inverts",
+  fillable = FALSE,
   tags$head(
+    tags$meta(name = "ddl-app-ready", content = APP_RELEASE_MARKER),
+    tags$meta(name = "ddl-release-instance", content = RELEASE_INSTANCE_ID),
     tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
-    tags$link(rel = "preconnect", href = "https://fonts.gstatic.com", crossorigin = NA),
-    tags$link(rel = "stylesheet", href = "https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap"),
-    tags$link(rel = "stylesheet", href = "https://cdn.jsdelivr.net/npm/sweetalert2@11.10.0/dist/sweetalert2.min.css"),
-    tags$script(src = "https://cdn.jsdelivr.net/npm/sweetalert2@11.10.0/dist/sweetalert2.all.min.js"),
-    tags$script(src = "https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"),
-    tags$script(src = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.js"),
+    tags$link(rel = "preconnect", href = "https://fonts.gstatic.com",
+              crossorigin = NA),
+    tags$link(
+      rel = "stylesheet",
+      href = paste0(
+        "https://fonts.googleapis.com/css2?family=Rubik:",
+        "wght@400;500;600;700;800&display=swap"
+      )
+    ),
     tags$link(rel = "stylesheet", href = asset_url("styles.css")),
     tags$link(rel = "stylesheet", href = asset_url("inverts.css")),
-    tags$script(src = asset_url("app.js")),
-    tags$script(src = asset_url("pincards.js"))
+    tags$link(rel = "stylesheet", href = asset_url("poster.css")),
+    tags$script(src = asset_url("app.js"))
   ),
   useShinyjs(),
+  tags$a(class = "app-skip", href = "#site-picker-start",
+         "Skip to aquatic site picker"),
 
-  # ---- persistent top bar (theme + help) ---------------------------------
-  div(class = "top-bar",
+  div(
+    class = "top-bar",
     div(class = "top-bar-brand",
-      tags$span(class = "tb-mark", "\U0001F990"),
-      tags$span(class = "tb-title", "My Little Inverts")),
+        tags$span(class = "tb-mark", "\U0001F990"),
+        tags$span(class = "tb-title", "My Little Inverts")),
     div(class = "top-bar-actions",
-      actionButton("help", tagList(bs_icon("question-circle"), " How it works"),
-                   class = "btn-outline-dark btn-sm tb-help"),
-      div(class = "tb-theme",
-        tags$span(class = "tb-theme-lab", bs_icon("circle-half")),
-        input_dark_mode(id = "colorMode", mode = "light")))
+        actionButton(
+          "help", tagList(bs_icon("question-circle"), " How to read it"),
+          class = "btn-outline-dark btn-sm tb-help"
+        ),
+        div(class = "tb-theme",
+            tags$span(class = "tb-theme-lab", bs_icon("circle-half")),
+            input_dark_mode(id = "colorMode", mode = "light")))
   ),
 
-  div(id = "loadOverlay", class = "load-overlay", div(class = "load-card",
-    div(class = "load-spin mascot-spin", MASCOT_CRITTER), div(class = "load-title", "Loading site data"),
-    div(id = "loadSite", class = "load-site"), div(class = "load-bar"),
-    div(class = "load-note", "Building the EPT pulse, the taxa board, and the maps."))),
-  if (isTRUE(NO_DATA)) div(class = "synth-banner", bs_icon("exclamation-octagon-fill"),
-    tags$span(HTML("<b>No data bundled yet.</b> Run <code>Rscript scripts/build_inv_data.R</code> to populate <code>data/</code>. The map below shows the network greyed out until then."))),
+  div(
+    id = "loadOverlay", class = "load-overlay",
+    div(
+      class = "load-card",
+      div(class = "load-spin mascot-spin", MASCOT_CRITTER),
+      div(class = "load-title", "Loading site records"),
+      div(id = "loadSite", class = "load-site"),
+      div(class = "load-bar"),
+      div(class = "load-note",
+          "Reading the opportunity ledger, exact strata, and taxon records.")
+    )
+  ),
+
+  if (isTRUE(NO_DATA)) div(
+    class = "synth-banner", bs_icon("exclamation-octagon-fill"),
+    tags$span(HTML(paste0(
+      "<b>No reviewed Pass-9 data bundle is available.</b> ",
+      "The app remains closed to legacy bundle shapes."
+    )))
+  ),
+
   uiOutput("heroStats"),
 
-  # "Open a taxon profile" picker — revealed on site load (shinyjs::show)
-  hidden(div(id = "spPickerWrap", class = "indiv-picker-wrap",
-    div(class = "ipw-row",
-      div(class = "ipw-sel",
-        selectizeInput("spSel", label = tagList(bs_icon("search"), " Open a taxon profile"), choices = NULL,
-                       width = "100%", options = list(placeholder = "Pick a taxon…"))),
-      actionButton("surpriseBtn", tagList(bs_icon("dice-5-fill"), " Surprise me"),
-                   class = "btn-outline-dark ipw-surprise")))),
+  div(
+    id = "splash",
+    div(
+      class = "splash splash-map",
+      inverts_poster(),
+      div(
+        id = "site-picker-start", class = "picker-map-wrap", tabindex = "-1",
+        `aria-label` = "Aquatic site picker",
+        leafletOutput("nationalPicker", height = "440px")
+      ),
+      uiOutput("recentsStrip"),
+      div(
+        class = "select-panel",
+        div(class = "sp-head", bs_icon("sliders"), " Or pick a site by name"),
+        div(
+          class = "sp-row",
+          div(class = "sp-field",
+              selectInput("stateSel", tagList(bs_icon("geo-alt-fill"), " State"),
+                          choices = NULL, width = "100%")),
+          div(class = "sp-field",
+              selectInput("site", tagList(bs_icon("pin-map-fill"), " Site"),
+                          choices = NULL, width = "100%"))
+        ),
+        uiOutput("siteBio"),
+        actionButton(
+          "loadBtn", tagList(bs_icon("water"), " Explore this site"),
+          class = "btn-primary btn-lg load-btn sp-load",
+          onclick = "smtLoadStart()"
+        )
+      ),
+      tags$details(
+        class = "site-browse",
+        tags$summary(
+          class = "site-browse-summary",
+          tags$span(class = "sbs-label", bs_icon("list-ul"),
+                    " Browse all 34 sites as a list"),
+          tags$span(class = "sbs-chevron", bs_icon("chevron-down"))
+        ),
+        div(class = "site-browse-body", uiOutput("siteCards"))
+      )
+    )
+  ),
 
-  div(id = "splash",
-    div(class = "splash-guide",
-      div(class = "sg-bubble", "Pick a site to start!"),
-      div(class = "sg-mascot", MASCOT_CRITTER)),
-    div(class = "splash splash-map",
-    div(class = "app-hero app-hero-splash",
-      h1(class = "app-title", "NEON My Little Inverts", span(class = "title-tag", "unofficial")),
-      p(class = "app-subtitle", "The little animals on the bottom of a stream, river, or lake — insect larvae, worms, snails, crustaceans — tell you a lot about the water above them. This app reads one NEON aquatic site at a time. Built on the Macroinvertebrate collection (DP1.20120.001).")),
-    p(tags$b("Tap a site on the map"), " (sized by survey effort, coloured by water type) to explore it, or pick one by name in the panel below the map. ", tags$b("34 aquatic sites"), " from desert streams to arctic lakes."),
-    uiOutput("recentsStrip"),
-    div(class = "picker-map-wrap", leafletOutput("nationalPicker", height = "440px")),
-
-    # ---- relocated select panel (was the sidebar) ----------------------
-    div(class = "select-panel",
-      div(class = "sp-head", bs_icon("sliders"), " Or pick a site by name"),
-      div(class = "sp-row",
-        div(class = "sp-field",
-          selectInput("stateSel", label = tagList(bs_icon("geo-alt-fill"), " State"), choices = NULL, width = "100%")),
-        div(class = "sp-field",
-          selectInput("site", label = tagList(bs_icon("pin-map-fill"), " Site"), choices = NULL, width = "100%"))),
-      uiOutput("siteBio"),
-      actionButton("loadBtn", tagList(bs_icon("water"), " Explore this site"),
-                   class = "btn-primary btn-lg load-btn sp-load", onclick = "smtLoadStart()")),
-
-    tags$details(class = "site-browse",
-      tags$summary(class = "site-browse-summary",
-        tags$span(class = "sbs-label", bs_icon("list-ul"), " Browse all 34 sites as a list"),
-        tags$span(class = "sbs-chevron", bs_icon("chevron-down"))),
-      div(class = "site-browse-body", uiOutput("siteCards"))))),
-
-  div(id = "mainTabsWrap", class = "main-tabs-wrap",
-    div(class = "hero-caveat", bs_icon("droplet-half"),
-      tags$span(HTML("Density is a <b>within-site standardized index</b> (individuals per m<sup>2</sup>), not an absolute population. These are <b>descriptive</b> bioassessment metrics, never a pass/fail score or an aquatic-life-use call (no calibrated reference condition exists for NEON sites)."))),
-    navset_card_tab(id = "tabs",
-      nav_panel(title = tagList(bs_icon("compass"), " Overview"), value = "overview",
-        div(class = "home-nav",
-          actionButton("goPulse", tagList(bs_icon("activity"), div("The EPT Pulse"), tags$small("clean-water bugs over time")), class = "home-btn home-btn-star"),
-          actionButton("goBoard", tagList(bs_icon("bug-fill"), div("Taxa Board"), tags$small("tap a bug \U2192 its profile + QC")), class = "home-btn"),
-          actionButton("goDiversity", tagList(bs_icon("bar-chart-steps"), div("Diversity"), tags$small("richness + composition")), class = "home-btn"),
-          actionButton("goCross", tagList(bs_icon("globe-americas"), div("Across the country"), tags$small("34 sites by gradient")), class = "home-btn"),
-          actionButton("goSearch", tagList(bs_icon("search"), div("Search the network"), tags$small("find a taxon or threshold")), class = "home-btn"),
-          actionButton("goMap", tagList(bs_icon("map-fill"), div("Map"), tags$small("the sampled reach")), class = "home-btn")),
-        card(full_screen = TRUE,
-          card_head("bar-chart-steps", "Most-abundant taxa (by density)",
-            info_pop("Density board",
-              p("Each taxon's mean ", tags$b("density"), " (individuals per m", tags$sup("2"), "), coloured ", tags$span(style="color:#0e8f9c;font-weight:700","EPT"), " (mayflies / stoneflies / caddisflies, the clean-water groups) vs ", tags$span(style="color:#94a7ad;font-weight:700","other"), "."),
-              p(class="pop-caveat", bs_icon("exclamation-triangle"), " Density is a ", tags$b("within-site standardized index, not a population"), ". Compare within a site, within a habitat and sampler type. The share of samples a taxon shows up on (the Taxa Board's other axis) is the steadier read."))),
-          uiOutput("overviewInsight"),
-          spin(plotlyOutput("topBar", height = "440px"))),
-        card(card_head("stars", "The story so far", info_pop("Story", p("Written from this site's data."))),
-          uiOutput("siteInsights"))),
-      nav_panel(title = tagList(bs_icon("activity"), " The EPT Pulse"), value = "pulse",
-        div(class = "tab-head", div(class = "tab-head-text",
-          h4("The EPT pulse"),
-          p("The clean-water signal over time: each bout's EPT share and density, with habitat and sampler type carried so you can read what is biology and what is method. Bouts flagged for low counts or mixed methods are greyed."),
-          span(class = "scope-chip scope-site", bs_icon("geo-alt-fill"), " Showing this site only"))),
-        card(full_screen = TRUE,
-          card_head("activity", "EPT share and density, bout by bout",
-            info_pop("Reading the pulse",
-              p("The line tracks each collection bout's ", tags$b("%EPT"), " (share of individuals that are mayflies, stoneflies, or caddisflies, the pollution-sensitive groups). The bars are ", tags$b("density"), " (individuals per m", tags$sup("2"), "). Marker shape = ", tags$b("habitat"), "; colour = ", tags$b("sampler type"), "."),
-              p("Greyed bouts are flagged (low count, or a mix of habitats / samplers) so they read as less comparable, not wrong. Comparisons are valid ", tags$b("within a habitat and sampler type"), "; a change can reflect which habitat was sampled, not the water."))),
-          div(class = "sizelab-toolbar",
-            tags$button(class = "smt-snap-btn", type = "button", onclick = "smtSaveBox('pulsePin','neon-inverts-ept-pulse.png')", bsicons::bs_icon("camera-fill"), " Download (with pinned cards)"),
-            downloadButton("pulseCsv", "Bout metrics (CSV)", class = "smt-clear-btn"),
-            tags$button(class = "smt-clear-btn", type = "button", onclick = "smtClearPins()", bsicons::bs_icon("eraser-fill"), " Clear pins"),
-            tags$span(class = "sizelab-hint", bs_icon("hand-index-thumb"), " interactive · tap a bout marker to pin its card")),
-          uiOutput("pulseInsight"),
-          div(class = "smt-pinnable", id = "pulsePin", spin(plotlyOutput("pulsePlot", height = "440px")))),
-        div(class = "confound-note", bs_icon("info-circle-fill"),
-          tags$span(HTML("If this is a lake, it is naturally EPT-poor — low EPT here is normal, <b>not</b> impairment."))),
-        layout_columns(col_widths = breakpoints(sm = 12, lg = c(7, 5)),   # stack on phones + tablets, side-by-side only on wide screens
-          card(full_screen = TRUE,
-            card_head("graph-up", "Density over time",
-              info_pop("Density trend", p("Each bout's mean density (individuals per m", tags$sup("2"), "). Heavy-tailed across bouts, so read direction, not the exact value."))),
-            div(class = "sizelab-toolbar",
-              tags$button(class = "smt-snap-btn", type = "button", onclick = "smtSaveBox('densityPin','neon-inverts-density.png')", bsicons::bs_icon("camera-fill"), " Download"),
-              tags$button(class = "smt-clear-btn", type = "button", onclick = "smtClearPins()", bsicons::bs_icon("eraser-fill"), " Clear pins"),
-              tags$span(class = "sizelab-hint", bs_icon("hand-index-thumb"), " tap a point to pin")),
-            uiOutput("densityInsight"), div(class = "smt-pinnable", id = "densityPin", spin(plotlyOutput("densityPlot", height = "320px")))),
-          card(full_screen = TRUE,
-            card_head("calculator", "How many taxa really? (Chao1)",
-              info_pop("Chao1", p(tags$b("Chao1"), " is an asymptotic, bias-corrected ", tags$b("minimum"), " estimate of richness (Chao 1984). Benthic sampling misses rare taxa, so the true total is higher than what is found. Suppressed where the count is too small to estimate honestly."))),
-            uiOutput("chaoBanner")))),
-      nav_panel(title = tagList(bs_icon("bug-fill"), " Taxa Board"), value = "board",
-        div(class = "tab-head", div(class = "tab-head-text",
-          h4("Every taxon on one board",
-             info_pop("Taxa Board",
-               p("Each dot is a ", tags$b("taxon"), ", placed by its ", tags$b("mean density"), " (individuals per m", tags$sup("2"), ", log scale) and its ", tags$b("ubiquity"), " (% of samples it shows up on)."),
-               p(tags$b("Tap a dot"), " to pin its card; open any taxon's full profile."))),
-          p("Each dot is a taxon, how dense × how widespread. EPT (clean-water) taxa are teal. Tap to pin a card."),
-          span(class = "scope-chip scope-site", bs_icon("geo-alt-fill"), " Showing this site only"))),
-        card(full_screen = TRUE,
-          card_head("bug-fill", "Density × ubiquity, by taxon",
-            info_pop("Reading this", p("Top-right = dense and everywhere; bottom-right = locally dense specialist; top-left = thinly everywhere. The ", tags$span(style="color:#0a6f7a;font-weight:700","teal diamond"), " is the taxon you're viewing. Colour = EPT vs other."))),
-          div(class = "sizelab-toolbar",
-            tags$button(class = "smt-snap-btn", type = "button", onclick = "smtSaveScatter()", bsicons::bs_icon("camera-fill"), " Download (with pinned cards)"),
-            downloadButton("taxaCsv", "Taxa board (CSV)", class = "smt-clear-btn"),
-            tags$button(class = "smt-clear-btn", type = "button", onclick = "smtClearPins()", bsicons::bs_icon("eraser-fill"), " Clear pins"),
-            tags$span(class = "sizelab-hint", bs_icon("hand-index-thumb"), " interactive · tap a dot to pin its card")),
-          div(class = "smt-pinnable", id = "boardPin", spin(plotlyOutput("taxaScatter", height = "540px")))),
-        uiOutput("spCardSlot")),
-      nav_panel(title = tagList(bs_icon("bar-chart-steps"), " Diversity"), value = "diversity",
-        div(class = "tab-head", div(class = "tab-head-text",
-          h4("Diversity and composition"),
-          p("Rarefied richness and common-taxa diversity per bout (suppressed where the count is too small to standardize), and the composition stack: who makes up the community."),
-          span(class = "scope-chip scope-site", bs_icon("geo-alt-fill"), " Showing this site only"))),
-        card(full_screen = TRUE,
-          card_head("graph-up", "Standardized richness per bout",
-            info_pop("Rarefied richness",
-              p(tags$b("Rarefied richness"), " (Hurlbert 1971) is taxon richness standardized to a common 100 individuals, so a bout with more individuals doesn't look richer just for being bigger. ", tags$b("Hill q1"), " is the effective number of common taxa."),
-              p(class="pop-caveat", bs_icon("exclamation-triangle"), " Bouts under 100 individuals or 3 samples are suppressed, not shown with false precision."))),
-          div(class = "sizelab-toolbar",
-            tags$button(class = "smt-snap-btn", type = "button", onclick = "smtSaveBox('diversityPin','neon-inverts-richness.png')", bsicons::bs_icon("camera-fill"), " Download (with pinned cards)"),
-            tags$button(class = "smt-clear-btn", type = "button", onclick = "smtClearPins()", bsicons::bs_icon("eraser-fill"), " Clear pins"),
-            tags$span(class = "sizelab-hint", bs_icon("hand-index-thumb"), " tap a point to pin its card")),
-          uiOutput("divInsight"), div(class = "smt-pinnable", id = "diversityPin", spin(plotlyOutput("diversityPlot", height = "340px")))),
-        # composition gets its OWN full-width row (was a squished half-width column):
-        # a filled 100%-stack band needs horizontal room to read share-over-bouts.
-        card(full_screen = TRUE,
-          card_head("pie-chart", "Composition across bouts",
-            info_pop("Composition",
-              p("Each bout's share of ", tags$span(style="color:#0e8f9c;font-weight:700","EPT"), " / ", tags$span(style="color:#e6b035;font-weight:700","Chironomidae"), " (midges) / ", tags$span(style="color:#8a5a2b;font-weight:700","Oligochaeta"), " (worms) / other, drawn as a filled band over the bouts in order. Midge- and worm-heavy assemblages are often (not always) the more tolerant ones."),
-              p(class="pop-caveat", bs_icon("exclamation-triangle"), " A surrogate, not a tolerance score. There is no calibrated index here."))),
-          div(class = "sizelab-toolbar",
-            tags$button(class = "smt-snap-btn", type = "button", onclick = "smtSaveBox('compPin','neon-inverts-composition.png')", bsicons::bs_icon("camera-fill"), " Download (with pinned cards)"),
-            tags$button(class = "smt-clear-btn", type = "button", onclick = "smtClearPins()", bsicons::bs_icon("eraser-fill"), " Clear pins"),
-            tags$span(class = "sizelab-hint", bs_icon("hand-index-thumb"), " tap a bout dot to pin its exact shares")),
-          div(class = "smt-pinnable", id = "compPin", spin(plotlyOutput("compPlot", height = "400px"))))),
-      nav_panel(title = tagList(bs_icon("globe-americas"), " Across the country"), value = "cross",
-        div(class = "tab-head", div(class = "tab-head-text",
-          h4("One protocol, 34 aquatic sites, a continent of waters"),
-          p("Each dot is a NEON aquatic site, placed by a geographic gradient against its community. Tap a dot to pin its card or jump to that site."),
-          span(class = "scope-chip scope-all", bs_icon("globe-americas"), " All 34 NEON aquatic sites, not just this one")),
-          div(class = "sizelab-controls",
-            selectInput("crossMetric", tagList(bs_icon("bar-chart"), " Community metric (y)"),
-              choices = c("EPT richness" = "ept_richness", "EPT share (% of individuals)" = "pct_ept_ind",
-                          "Richness · observed" = "richness", "Richness · rarefied" = "rarefied_richness",
-                          "Density index (log)" = "density_m2", "Common-taxa diversity (Hill q1)" = "hill_q1"),
-              selected = "ept_richness", width = "100%"),
-            selectInput("crossX", tagList(bs_icon("rulers"), " Gradient (x)"),
-              choices = c("Elevation (m)" = "elevation", "Latitude" = "lat"), selected = "elevation", width = "100%"))),
-        card(full_screen = TRUE,
-          card_head("globe-americas", "Community across the gradient",
-            info_pop("Reading this",
-              p("Each dot is a site; ", tags$b("size = survey effort"), " (bouts); colour = water type (", tags$span(style="color:#0e8f9c;font-weight:700","stream"), " / ", tags$span(style="color:#2f7daa;font-weight:700","river"), " / ", tags$span(style="color:#5a8f3e;font-weight:700","lake"), "); the ", tags$span(style="color:#0a6f7a;font-weight:700","teal diamond"), " is the site you're viewing."),
-              p("This is ", tags$b("space-for-time"), ", 34 different places observed at once, not one place changing, so it's correlational and confounded by water type and habitat. The density index is within-site, so compare sites by ", tags$b("direction, not by who has the higher raw number"), " (it uses a log axis)."))),
-          div(class = "sizelab-toolbar",
-            tags$button(class = "smt-snap-btn", type = "button", onclick = "smtSaveClimate()", bsicons::bs_icon("camera-fill"), " Download (with pinned cards)"),
-            downloadButton("crossSiteCsv", "Cross-site table (CSV)", class = "smt-clear-btn"),
-            tags$button(class = "smt-clear-btn", type = "button", onclick = "smtClearPins()", bsicons::bs_icon("eraser-fill"), " Clear pins"),
-            tags$span(class = "sizelab-hint", bs_icon("hand-index-thumb"), " interactive · tap a site to pin its card")),
-          div(class = "smt-pinnable", id = "climatePin", spin(plotlyOutput("crossGradient", height = "560px"))),
-          div(class = "confound-note", bs_icon("info-circle-fill"),
-            tags$span(HTML("Lakes (green) sit naturally low on EPT, that is the ecosystem, not impairment. Streams and rivers are not directly comparable to lakes on EPT metrics."))))),
-      nav_panel(title = tagList(bs_icon("map-fill"), " Map"), value = "map",
-        div(class = "tab-head", div(class = "tab-head-text",
-          h4("The sampled reach"),
-          p("One sampling reach, shown to scale. NEON returns to the same spot each bout — a single marker is the finding, not missing data. Tap it for habitat, sampler, counts, and a NEON-portal link; where several named stations exist they show separately, sized by density."),
-          span(class = "scope-chip scope-site", bs_icon("geo-alt-fill"), " Showing this site only")),
-          div(class = "map-controls",
-            selectInput("view", "Basemap", width = "180px", choices = c("Terrain" = "Esri.WorldTopoMap", "Light" = "CartoDB.Positron", "Satellite" = "Esri.WorldImagery")))),
-        spin(leafletOutput("siteMap", height = "560px")),
-        uiOutput("reachPanel")),
-      nav_panel(title = tagList(bs_icon("search"), " Search"), value = "search",
-        div(class = "tab-head", div(class = "tab-head-text",
-          h4("Search the network"),
-          p("Two ways to query all 34 NEON aquatic sites at once, from the bundled index (no download, instant). Find a taxon to see every site it turns up at, or set a threshold to list the sites that clear it. Jump straight to any site from the results."),
-          span(class = "scope-chip scope-all", bs_icon("globe-americas"), " All 34 NEON aquatic sites"))),
-        div(class = "search-modeswitch",
-          radioButtons("searchMode", NULL, inline = TRUE,
-            choiceNames = list(
-              tagList(bs_icon("bug-fill"), " Find a taxon"),
-              tagList(bs_icon("funnel-fill"), " Threshold query")),
-            choiceValues = c("taxon", "threshold"), selected = "taxon")),
-
-        # ---- mode A: FIND A TAXON ------------------------------------------
-        conditionalPanel("input.searchMode == 'taxon'",
+  div(
+    id = "mainTabsWrap", class = "main-tabs-wrap",
+    div(
+      class = "hero-caveat exact-grain-caveat", bs_icon("layers-half"),
+      tags$span(HTML(paste0(
+        "Every quantitative view keeps the exact <b>site × event × water type × ",
+        "habitat × sampler</b> stratum visible. Missing, unknown, and reported ",
+        "zero are separate. Density appears only with usable benthic area and is ",
+        "never pooled into a cross-site biological ranking."
+      )))
+    ),
+    navset_card_tab(
+      id = "tabs",
+      nav_panel(
+        title = tagList(bs_icon("compass"), " Overview"), value = "overview",
+        div(
+          class = "home-nav field-first-nav",
+          actionButton("goStrata", tagList(bs_icon("layers"),
+            div("Event strata"), tags$small("same habitat + sampler")),
+            class = "home-btn home-btn-star"),
+          actionButton("goTaxa", tagList(bs_icon("bug-fill"),
+            div("Taxon records"), tags$small("support + mixed rank")),
+            class = "home-btn"),
+          actionButton("goNetwork", tagList(bs_icon("globe-americas"),
+            div("Network effort"), tags$small("opportunities + records")),
+            class = "home-btn"),
+          actionButton("goQA", tagList(bs_icon("clipboard-data"),
+            div("QC + provenance"), tags$small("nothing silently dropped")),
+            class = "home-btn")
+        ),
+        layout_columns(
+          col_widths = breakpoints(sm = 12, lg = c(5, 7)),
           card(
-            card_head("bug-fill", "Find a taxon across the network",
-              info_pop("Find a taxon",
-                p("Pick any macroinvertebrate taxon in the network. The table lists every site it was found at, with that site's ", tags$b("mean density"), " for the taxon (individuals per m", tags$sup("2"), ") and how widespread it is there (", tags$b("ubiquity"), ", the share of samples it shows up on)."),
-                p(class = "pop-caveat", bs_icon("exclamation-triangle"), " Density is a ", tags$b("within-site index, not an absolute ranking"), ". A higher number at one site does not mean more bugs in nature, it means a denser sampled assemblage. Compare direction, not raw value."))),
-            div(class = "search-pick",
-              selectizeInput("searchTaxon", tagList(bs_icon("search"), " Taxon"), choices = NULL, width = "100%",
-                             options = list(placeholder = "Type a name, e.g. Baetis…"))),
-            div(class = "search-caption", uiOutput("searchTaxonCaption")),
-            div(style = "width:100%", DT::DTOutput("searchTaxonTbl")))),
-
-        # ---- mode B: THRESHOLD QUERY ---------------------------------------
-        conditionalPanel("input.searchMode == 'threshold'",
+            full_screen = TRUE,
+            card_head("diagram-3", "Primary processing-status ledger",
+              info_pop("One field row, one primary status",
+                p("Every non-metabarcoding field row remains visible in exactly one dominant processing state."),
+                p("Support flags can overlap that status. For example, a usable laboratory zero without benthic area has an area-unavailable primary status and a reported-zero support flag."),
+                p("Processed samples without taxonomy remain unknown; they are never converted to zero."))),
+            spin(plotlyOutput("overviewStatusPlot", height = "410px"))
+          ),
           card(
-            card_head("funnel-fill", "List the sites that clear a threshold",
-              info_pop("Threshold query",
-                p("Set a minimum on a community metric and list the sites that meet it. ", tags$b("EPT richness"), " is the number of mayfly / stonefly / caddisfly taxa found (the clean-water groups). ", tags$b("%EPT"), " is the share of all individuals that are EPT."),
-                p(class = "pop-caveat", bs_icon("exclamation-triangle"), " These are ", tags$b("space-for-time"), " comparisons across different waters, confounded by water type and habitat. Lakes are naturally EPT-poor, so a low EPT site is not impaired."))),
-            div(class = "search-thresh-row",
-              div(class = "sp-field",
-                selectInput("threshMetric", tagList(bs_icon("bar-chart"), " Metric"),
-                  choices = c("EPT richness (# of EPT taxa)" = "ept_richness",
-                              "%EPT (share of individuals)" = "pct_ept_ind"),
-                  selected = "ept_richness", width = "100%")),
-              div(class = "sp-field",
-                numericInput("threshValue", tagList(bs_icon("chevron-up"), " Minimum (greater than)"),
-                  value = 30, min = 0, step = 1, width = "100%"))),
-            div(class = "search-caption", uiOutput("searchThreshCaption")),
-            div(style = "width:100%", DT::DTOutput("searchThreshTbl"))))),
+            full_screen = TRUE,
+            card_head("calendar3", "Opportunities through time"),
+            uiOutput("overviewTimelineNote"),
+            spin(plotlyOutput("overviewTimeline", height = "360px"))
+          )
+        ),
+        card(card_head("journal-text", "What this site record contains"),
+             uiOutput("siteNarrative"))
+      ),
 
-      nav_panel(title = tagList(bs_icon("droplet-fill"), " Taxon Profile"), value = "species", uiOutput("speciesProfile")),
-      nav_panel(title = tagList(bs_icon("info-circle"), " About"), value = "about", uiOutput("aboutPanel"))
+      nav_panel(
+        title = tagList(bs_icon("layers"), " Event strata"), value = "strata",
+        div(class = "tab-head",
+            div(class = "tab-head-text",
+                h4("Compare like with like"),
+                p(paste(
+                  "Choose one water type, habitat, and sampler family.",
+                  "Points then vary by event only; no modal-method or pooled-site shortcut is used."
+                )),
+                span(class = "scope-chip scope-site", bs_icon("geo-alt-fill"),
+                     " One site · one method family"))),
+        div(
+          class = "stratum-filter-grid",
+          selectInput("stratumAquaticType", "Water type", choices = NULL),
+          selectInput("stratumHabitat", "Habitat", choices = NULL),
+          selectInput("stratumSampler", "Sampler", choices = NULL)
+        ),
+        uiOutput("stratumDenominators"),
+        layout_columns(
+          col_widths = breakpoints(sm = 12, lg = c(6, 6)),
+          card(
+            full_screen = TRUE,
+            card_head("rulers", "Collection density by event",
+              info_pop("Density denominator",
+                p("Each point is the arithmetic mean of density-eligible samples in one exact stratum."),
+                p("The interval is the sample standard error when at least two density-eligible samples exist; it is not population uncertainty."))),
+            spin(plotlyOutput("stratumDensityPlot", height = "390px"))
+          ),
+          card(
+            full_screen = TRUE,
+            card_head("pie-chart", "Descriptive EPT composition by event",
+              info_pop("Composition denominator",
+                p("The EPT share is averaged across positive-total count-eligible samples."),
+                p("Counts with unknown order stay in the denominator. Order-classified share is shown beside EPT as support for interpretation."))),
+            spin(plotlyOutput("stratumCompositionPlot", height = "390px"))
+          )
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("table", "Exact event-stratum rows"),
+          div(class = "download-row",
+              downloadButton("strataCsv", "Download selected strata (CSV)",
+                             class = "btn-outline-dark btn-sm")),
+          DT::DTOutput("strataTable")
+        )
+      ),
+
+      nav_panel(
+        title = tagList(bs_icon("bug-fill"), " Taxon records"), value = "taxa",
+        div(class = "tab-head",
+            div(class = "tab-head-text",
+                h4("Taxa inside one exact stratum"),
+                p(paste(
+                  "Support is zero-filled only across count-eligible processed samples.",
+                  "Identification rank stays attached to every name."
+                )),
+                span(class = "scope-chip scope-site", bs_icon("layers"),
+                     " No site-wide density pooling"))),
+        selectizeInput(
+          "taxonStratum", "Event · water type · habitat · sampler",
+          choices = NULL, width = "100%",
+          options = list(placeholder = "Choose an exact stratum")
+        ),
+        uiOutput("taxonDenominators"),
+        layout_columns(
+          col_widths = breakpoints(sm = 12, lg = c(6, 6)),
+          card(
+            full_screen = TRUE,
+            card_head("record-circle", "Sample support"),
+            spin(plotlyOutput("taxonSupportPlot", height = "440px"))
+          ),
+          card(
+            full_screen = TRUE,
+            card_head("123", "Expanded laboratory counts"),
+            spin(plotlyOutput("taxonCountPlot", height = "440px"))
+          )
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("table", "Taxon-stratum records"),
+          div(class = "download-row",
+              downloadButton("taxaCsv", "Download this stratum (CSV)",
+                             class = "btn-outline-dark btn-sm")),
+          DT::DTOutput("taxaTable")
+        )
+      ),
+
+      nav_panel(
+        title = tagList(bs_icon("globe-americas"), " Network effort"),
+        value = "network",
+        div(class = "tab-head",
+            div(class = "tab-head-text",
+                h4("Across NEON: effort and records only"),
+                p(paste(
+                  "Compare how much was attempted and processed.",
+                  "No raw density or condition ranking is available in this view."
+                )),
+                span(class = "scope-chip scope-net", bs_icon("shield-check"),
+                     " 34-site descriptive inventory"))),
+        div(
+          class = "network-axis-grid",
+          selectInput("networkX", "Horizontal axis",
+                      choices = stats::setNames(names(inv_comparison_choices),
+                                                unname(inv_comparison_choices)),
+                      selected = "n_opportunities"),
+          selectInput("networkY", "Vertical axis",
+                      choices = stats::setNames(names(inv_comparison_choices),
+                                                unname(inv_comparison_choices)),
+                      selected = "n_count_samples")
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("scatter-chart", "Site effort and record counts"),
+          uiOutput("networkBoundary"),
+          spin(plotlyOutput("networkPlot", height = "500px"))
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("table", "Network effort table"),
+          div(class = "download-row",
+              downloadButton("networkCsv", "Download network table (CSV)",
+                             class = "btn-outline-dark btn-sm")),
+          DT::DTOutput("networkTable")
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("search", "Find a recorded taxon across exact strata"),
+          selectizeInput("searchTaxon", "Taxon name", choices = NULL, width = "100%",
+                         options = list(placeholder = "Type a taxon name")),
+          uiOutput("networkTaxonNote"),
+          DT::DTOutput("networkTaxonTable")
+        )
+      ),
+
+      nav_panel(
+        title = tagList(bs_icon("clipboard-data"), " QC + provenance"),
+        value = "qa",
+        div(class = "tab-head",
+            div(class = "tab-head-text",
+                h4("Audit the record behind every chart"),
+                p(paste(
+                  "Quality fields and processing states are contextual evidence.",
+                  "They are displayed and retained; the app does not silently filter a row because a flag exists."
+                )),
+                span(class = "scope-chip scope-site", bs_icon("eye"),
+                     " Display, retain, explain"))),
+        layout_columns(
+          col_widths = breakpoints(sm = 12, lg = c(6, 6)),
+          card(card_head("diagram-3", "Primary-status definitions"),
+               DT::DTOutput("statusDefinitions")),
+          card(card_head("check2-square", "Bundle reconciliation"),
+               uiOutput("qcReconciliation"))
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("flag", "Source quality context"),
+          uiOutput("qcSourceNote"),
+          selectInput(
+            "qcLayer", "Quality evidence layer",
+            choices = c(
+              "Field quality fields" = "field",
+              "Per-sample sorting and comparison fields" = "per_sample",
+              "Taxonomy quality fields" = "taxonomy_processed",
+              "Product issue log (contextual annotations)" = "issue_log"
+            ),
+            selected = "field", width = "100%"
+          ),
+          DT::DTOutput("qcIssueTable")
+        ),
+        card(
+          full_screen = TRUE,
+          card_head("list-check", "Complete opportunity ledger"),
+          div(class = "download-row",
+              downloadButton("opportunityCsv", "Download opportunities (CSV)",
+                             class = "btn-outline-dark btn-sm"),
+              downloadButton("codebookCsv", "Download codebook (CSV)",
+                             class = "btn-outline-dark btn-sm")),
+          DT::DTOutput("opportunityTable")
+        ),
+        layout_columns(
+          col_widths = breakpoints(sm = 12, lg = c(7, 5)),
+          card(card_head("braces", "Metric contract"),
+               DT::DTOutput("metricContractTable")),
+          card(card_head("fingerprint", "Source + build provenance"),
+               DT::DTOutput("provenanceTable"))
+        )
+      ),
+
+      nav_panel(
+        title = tagList(bs_icon("info-circle"), " About"), value = "about",
+        uiOutput("aboutPanel")
+      )
+    )
+  ),
+
+  div(
+    class = "ddl-footer",
+    div(tags$a(
+      class = "custom-cta",
+      href = paste0(
+        "mailto:desertdatalabs@gmail.com?subject=",
+        "NEON%20My%20Little%20Inverts"
+      ),
+      span(class = "hand", "\U0001F44B"),
+      "Questions or feedback? Get in touch with Desert Data Labs."
     )),
-  div(class = "ddl-footer",
-    div(tags$a(class = "custom-cta", href = "mailto:desertdatalabs@gmail.com?subject=NEON%20My%20Little%20Inverts",
-      span(class = "hand", "\U0001F44B"), "Questions or feedback? Get in touch with Desert Data Labs.")),
-    p(style = "margin-top:12px", HTML("Built by <strong>Desert Data Labs</strong> · Tucson, AZ · get in touch "),
-      tags$a(href = "mailto:desertdatalabs@gmail.com?subject=NEON%20My%20Little%20Inverts", "desertdatalabs@gmail.com")),
-    p(style = "font-size:12px;opacity:.85", "Data: NEON Macroinvertebrate collection (DP1.20120.001). Not affiliated with NEON, Battelle, or the NSF. An educational data-exploration tool."))
+    p(style = "margin-top:12px",
+      HTML("Built by <strong>Desert Data Labs</strong> · Tucson, AZ · get in touch "),
+      tags$a(
+        href = paste0(
+          "mailto:desertdatalabs@gmail.com?subject=",
+          "NEON%20My%20Little%20Inverts"
+        ),
+        "desertdatalabs@gmail.com"
+      )),
+    p(style = "font-size:12px;opacity:.85",
+      paste(
+        "Data: NEON Macroinvertebrate collection (DP1.20120.001).",
+        "Not affiliated with NEON, Battelle, or the NSF.",
+        "An educational data-exploration tool."
+      ))
+  )
 )
