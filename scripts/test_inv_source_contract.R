@@ -586,6 +586,65 @@ expect_true(
 )
 contract_get_api <- function(apiURL, token = NA_character_) NULL
 expect_true(
+  isTRUE(fetch_env$inv_assert_neonutilities_base_url(
+    "https://data.neonscience.org/api/v0/"
+  )),
+  "transport initialization accepts only the exact reviewed NEON API base URL"
+)
+expect_error(
+  fetch_env$inv_assert_neonutilities_base_url("data"),
+  "exact reviewed NEON API base URL"
+)
+expect_true(
+  identical(
+    paste0(fetch_env$INV_NEON_API_BASE_URL, "data/query?fixture=true"),
+    "https://data.neonscience.org/api/v0/data/query?fixture=true"
+  ),
+  "reviewed base URL composes an absolute HTTPS query endpoint"
+)
+unset_globals <- new.env(parent = emptyenv())
+restore_base_url <- fetch_env$inv_initialize_neonutilities_base_url(
+  unset_globals, fetch_env$INV_NEON_UTILITIES_VERSION
+)
+expect_true(
+  identical(unset_globals$baseurl, fetch_env$INV_NEON_API_BASE_URL),
+  "base-URL initializer repairs an absent 4.0.1 namespace field"
+)
+restore_base_url()
+restore_base_url()
+expect_true(
+  !exists("baseurl", envir = unset_globals, inherits = FALSE),
+  "base-URL initializer exactly and idempotently removes an originally absent field"
+)
+blank_globals <- new.env(parent = emptyenv())
+blank_globals$baseurl <- ""
+restore_base_url <- fetch_env$inv_initialize_neonutilities_base_url(
+  blank_globals, fetch_env$INV_NEON_UTILITIES_VERSION
+)
+restore_base_url()
+expect_true(
+  identical(blank_globals$baseurl, ""),
+  "base-URL initializer exactly restores an originally blank field"
+)
+hostile_globals <- new.env(parent = emptyenv())
+hostile_globals$baseurl <- "https://fixture.invalid/api/"
+expect_error(
+  fetch_env$inv_initialize_neonutilities_base_url(
+    hostile_globals, fetch_env$INV_NEON_UTILITIES_VERSION
+  ),
+  "exact reviewed NEON API base URL"
+)
+expect_true(
+  identical(hostile_globals$baseurl, "https://fixture.invalid/api/"),
+  "base-URL initializer rejects an override without mutating it"
+)
+expect_error(
+  fetch_env$inv_initialize_neonutilities_base_url(
+    new.env(parent = emptyenv()), "4.0.2"
+  ),
+  "requires neonUtilities 4[.]0[.]1 exactly"
+)
+expect_true(
   isTRUE(fetch_env$inv_assert_neonutilities_getapi_contract(
     fetch_env$INV_NEON_UTILITIES_VERSION, contract_get_api
   )),

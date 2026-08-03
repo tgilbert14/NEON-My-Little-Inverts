@@ -10,8 +10,9 @@
 
 source("scripts/inv_source_contract.R", local = TRUE)
 
+INV_NEON_API_BASE_URL <- "https://data.neonscience.org/api/v0/"
 INV_NEON_AUTH_CHECK_URL <- paste0(
-  "https://data.neonscience.org/api/v0/data/query?",
+  INV_NEON_API_BASE_URL, "data/query?",
   "productCode=DP1.10003.001&siteCode=BART&",
   "startDateMonth=2023-01&endDateMonth=2023-12&",
   "release=RELEASE-2025"
@@ -217,6 +218,65 @@ inv_make_neonutilities_getapi_restore <- function(original, assign_binding) {
   }
 }
 
+inv_assert_neonutilities_base_url <- function(base_url) {
+  inv_assert(
+    length(base_url) == 1L && !is.na(base_url) &&
+      identical(as.character(base_url), INV_NEON_API_BASE_URL),
+    paste0(
+      "neonUtilities must use the exact reviewed NEON API base URL; ",
+      "running %s"
+    ),
+    if (length(base_url)) as.character(base_url[[1L]]) else "<unset>"
+  )
+  invisible(TRUE)
+}
+
+inv_initialize_neonutilities_base_url <- function(globals = NULL,
+                                                   actual_version = NULL) {
+  # neonUtilities 4.0.1 initializes nu.globals$baseurl only in .onAttach().
+  # Namespace-qualified calls load but do not attach the package, leaving the
+  # value absent and turning its intended URL into the bare host "data". Set only
+  # that process-local field, reject any nonblank override, and return an exact,
+  # idempotent restoration closure.
+  if (is.null(actual_version)) {
+    actual_version <- as.character(utils::packageVersion("neonUtilities"))
+  }
+  inv_assert(
+    identical(actual_version, INV_NEON_UTILITIES_VERSION),
+    "NEON base-URL initialization requires neonUtilities %s exactly; running %s",
+    INV_NEON_UTILITIES_VERSION, actual_version
+  )
+  if (is.null(globals)) {
+    globals <- get(
+      "nu.globals", envir = asNamespace("neonUtilities"), inherits = FALSE
+    )
+  }
+  inv_assert(
+    is.environment(globals),
+    "neonUtilities nu.globals contract drifted; refusing base-URL initialization"
+  )
+  prior_exists <- exists("baseurl", envir = globals, inherits = FALSE)
+  prior <- if (prior_exists) get("baseurl", envir = globals) else NULL
+  prior_blank <- !prior_exists || !length(prior) ||
+    (length(prior) == 1L && !is.na(prior) && identical(as.character(prior), ""))
+  if (!prior_blank) inv_assert_neonutilities_base_url(prior)
+  assign("baseurl", INV_NEON_API_BASE_URL, envir = globals)
+  inv_assert_neonutilities_base_url(globals$baseurl)
+
+  restored <- FALSE
+  function() {
+    if (!restored) {
+      if (prior_exists) {
+        assign("baseurl", prior, envir = globals)
+      } else if (exists("baseurl", envir = globals, inherits = FALSE)) {
+        rm(list = "baseurl", envir = globals)
+      }
+      restored <<- TRUE
+    }
+    invisible(TRUE)
+  }
+}
+
 inv_install_neonutilities_getapi_compat <- function() {
   actual_version <- as.character(utils::packageVersion("neonUtilities"))
   namespace <- asNamespace("neonUtilities")
@@ -264,6 +324,8 @@ inv_persist_fetched_source <- function(source_data, artifact_path,
 
 fetch_inv_all <- function() {
   inv_assert_fetch_runtime()
+  restore_base_url <- inv_initialize_neonutilities_base_url()
+  on.exit(restore_base_url(), add = TRUE)
   producer_git_sha <- inv_assert_producer_git_sha(
     trimws(Sys.getenv("SOURCE_SHA", ""))
   )

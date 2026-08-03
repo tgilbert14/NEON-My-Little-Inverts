@@ -127,8 +127,10 @@ authentication preflight retries transport/429/5xx failures and distinguishes
 material. The pinned `neonUtilities` 4.0.1 fetch then uses a guarded, process-local
 `getAPI` compatibility binding with the same two-argument response contract, the
 preflight-proven stable user agent and timeout, bounded transport retries, and
-automatic restoration when the fetch exits. A transport failure cannot masquerade
-as fetched source data.
+automatic restoration when the fetch exits. It also initializes and verifies the
+package's exact official API base URL in its process-local namespace, which 4.0.1
+otherwise leaves unset for a namespace-only call, and restores the prior field on
+exit. A transport failure cannot masquerade as fetched source data.
 
 ## Run locally
 
