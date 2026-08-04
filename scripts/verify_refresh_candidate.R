@@ -125,8 +125,9 @@ expected_geo_urls <- c(
   classInt="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/classInt_0.4-11.tar.gz",
   raster="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/raster_3.6-32.tar.gz",
   sp="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sp_2.2-1.tar.gz")
-expected_snapshot_pins <- c(plotly="4.12.0")
+expected_snapshot_pins <- c(bslib="0.11.0", plotly="4.12.0")
 expected_snapshot_urls <- c(
+  bslib="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/bslib_0.11.0.tar.gz",
   plotly="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/plotly_4.12.0.tar.gz")
 
 assert(identical(scalar(manifest$platform), expected_platform),

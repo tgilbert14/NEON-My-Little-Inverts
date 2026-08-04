@@ -109,8 +109,11 @@ GEO_URLS <- c(
   classInt="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/classInt_0.4-11.tar.gz",
   raster="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/raster_3.6-32.tar.gz",
   sp="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sp_2.2-1.tar.gz")
-SNAPSHOT_SOURCE_PINS <- c(plotly="4.12.0")
+# Explicit dated sources cannot be superseded by setup-r-dependencies' moving
+# CRAN fallback. Their exact URL identity is retained alongside the version.
+SNAPSHOT_SOURCE_PINS <- c(bslib="0.11.0", plotly="4.12.0")
 SNAPSHOT_SOURCE_URLS <- c(
+  bslib="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/bslib_0.11.0.tar.gz",
   plotly="https://packagemanager.posit.co/cran/2026-07-15/src/contrib/plotly_4.12.0.tar.gz")
 
 scalar <- function(x) if (is.null(x) || length(x) != 1L || is.na(x)) "" else as.character(x)

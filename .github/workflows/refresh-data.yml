@@ -81,6 +81,7 @@ jobs:
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           r-version: "4.5.2"
+          cran: https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15
           use-public-rspm: false
 
       - name: Install producer dependencies
@@ -91,7 +92,7 @@ jobs:
             dplyr, tibble, jsonlite, digest
           pak-version: stable
           dependencies: '"hard"'
-          cache-version: invert-producer-source-contract-v2
+          cache-version: invert-producer-source-contract-v3
           install-pandoc: "false"
           install-quarto: "false"
 
@@ -215,15 +216,20 @@ jobs:
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           r-version: "4.5.2"
+          cran: https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15
           use-public-rspm: false
 
+      # pak also exposes a moving CRAN fallback. Keep bslib on the dated 0.11.0
+      # source explicitly so a newer fallback-only release cannot enter the
+      # retained Connect manifest while the rest of the closure uses RSPM.
       - name: Install validator and runtime dependencies
         uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           packages: >
-            shiny, bslib, bsicons, dplyr, tibble, tidyr, stringr, rsconnect,
+            shiny, bsicons, dplyr, tibble, tidyr, stringr, rsconnect,
             jsonlite, digest, shinyjs, shinycssloaders, RColorBrewer, htmltools, cpp11,
             leaflet, DT,
+            url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/bslib_0.11.0.tar.gz,
             url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/plotly_4.12.0.tar.gz,
             url::https://cran.r-project.org/src/contrib/Archive/terra/terra_1.8-50.tar.gz,
             url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sf_1.1-1.tar.gz,
@@ -235,7 +241,7 @@ jobs:
             url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sp_2.2-1.tar.gz
           pak-version: stable
           dependencies: '"hard"'
-          cache-version: invert-validator-geo-v2
+          cache-version: invert-validator-geo-bslib-v3
           install-pandoc: "false"
           install-quarto: "false"
 
