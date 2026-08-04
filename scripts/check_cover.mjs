@@ -296,14 +296,14 @@ requireContract(/branches: \[main\]/.test(postDeployWorkflow)
 "content-aware post-deploy workflow is not wired to main");
 requireContract(npmPackage.private === true
   && npmPackage.scripts?.["check:cover"] === "node scripts/check_cover.mjs"
-  && npmPackage.devDependencies?.playwright === "1.62.1"
+  && npmPackage.devDependencies?.playwright === "1.55.1"
   && npmLock.lockfileVersion === 3
-  && npmLock.packages?.["node_modules/playwright"]?.version === "1.62.1"
+  && npmLock.packages?.["node_modules/playwright"]?.version === "1.55.1"
   && npmLock.packages?.["node_modules/playwright"]?.integrity
-    === "sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg=="
-  && npmLock.packages?.["node_modules/playwright-core"]?.version === "1.62.1"
+    === "sha512-cJW4Xd/G3v5ovXtJJ52MAOclqeac9S/aGGgRzLabuF8TnIb6xHvMzKIa6JmrRzUkeXJgfL1MhukP0NK6l39h3A=="
+  && npmLock.packages?.["node_modules/playwright-core"]?.version === "1.55.1"
   && npmLock.packages?.["node_modules/playwright-core"]?.integrity
-    === "sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==",
+    === "sha512-Z6Mh9mkwX+zxSlHqdr5AOcJnfp+xUWLCt9uKV18fhzA8eyxUd8NUWzAjxUh55RZKSYwDGX0cfaySdhZJGMoJ+w==",
 "post-deploy Playwright dependency tree is not version- and integrity-locked");
 requireContract(/ddl-release-instance/.test(postDeploySmoke)
   && /release\.json/.test(postDeploySmoke)
