@@ -591,6 +591,69 @@ expect_true(
 )
 unlink(portable_evidence_root, recursive = TRUE, force = TRUE)
 
+data_table_valid <- valid
+data_table_valid$variables_20120 <-
+  data.table::as.data.table(data_table_valid$variables_20120)
+data_table_valid <- inv_materialize_source(data_table_valid)
+data_table_before <- serialize(data_table_valid, NULL, version = 3)
+data_table_summary <- inv_validate_source(data_table_valid)
+data_table_after <- serialize(data_table_valid, NULL, version = 3)
+expect_true(
+  is.list(data_table_summary) &&
+    identical(class(data_table_valid$variables_20120),
+              c("data.table", "data.frame")) &&
+    is.null(attr(data_table_valid$variables_20120, ".internal.selfref")) &&
+    identical(data_table_after, data_table_before),
+  paste(
+    "full source validation accepts canonical data.table metadata without",
+    "mutating its class, attributes, values, or serialized bytes"
+  )
+)
+
+metadata_fields <- names(INV_COUNT_METADATA_EXPECTATION)
+metadata_key <- paste(
+  INV_COUNT_METADATA_EXPECTATION$table,
+  INV_COUNT_METADATA_EXPECTATION$fieldName,
+  sep = "\u241f"
+)
+variable_key <- paste(
+  as.character(data_table_valid$variables_20120$table),
+  as.character(data_table_valid$variables_20120$fieldName),
+  sep = "\u241f"
+)
+metadata_rows <- match(metadata_key, variable_key)
+projected_metadata <- inv_frame_columns(
+  data_table_valid$variables_20120[metadata_rows, , drop = FALSE],
+  metadata_fields
+)
+expected_metadata <- valid$variables_20120[
+  metadata_rows, metadata_fields, drop = FALSE
+]
+projected_metadata <- data.frame(
+  lapply(projected_metadata, as.character),
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+expected_metadata <- data.frame(
+  lapply(expected_metadata, as.character),
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+expect_true(
+  identical(projected_metadata, expected_metadata),
+  "data.table metadata projection preserves the displayed-zero receipt fields"
+)
+
+duplicate_data_table <- data.table::rbindlist(list(
+  data_table_valid$variables_20120,
+  data_table_valid$variables_20120[1L, , drop = FALSE]
+), use.names = TRUE)
+duplicate_data_table <- inv_materialize_data_frame(duplicate_data_table)
+duplicate_source <- valid
+duplicate_source$variables_20120 <- duplicate_data_table
+expect_error(
+  inv_validate_source(duplicate_source),
+  "variables_20120 has duplicate table/fieldName schema rows"
+)
+
 placeholder_coexisting <- fixture_taxonomy[1, , drop = FALSE]
 placeholder_coexisting$uid <- "10000000-0000-4000-8000-000000000011"
 placeholder_coexisting$targetTaxaPresent <- "N"

@@ -497,6 +497,29 @@ inv_materialize_source <- function(source) {
   materialized
 }
 
+inv_frame_columns <- function(frame, fields) {
+  inv_assert(is.data.frame(frame), "Column projection source must be a data frame")
+  inv_assert(length(fields) > 0L && !anyDuplicated(fields),
+             "Column projection fields must be nonempty and unique")
+  inv_assert(all(fields %in% names(frame)),
+             "Column projection source is missing field(s): %s",
+             paste(setdiff(fields, names(frame)), collapse = ", "))
+
+  # Use [[ extraction rather than `[.data.frame` shorthand. The exact pinned
+  # neonUtilities fetch returns variables_20120 as data.table/data.frame, whose
+  # one-argument and symbolic-j `[` semantics differ from base data.frame. This
+  # creates a read-only base view without changing the receipt-bound source class,
+  # attributes, columns, values, or canonical serialized bytes.
+  columns <- lapply(fields, function(field) frame[[field]])
+  names(columns) <- fields
+  attributes(columns) <- list(
+    names = fields,
+    row.names = attr(frame, "row.names"),
+    class = "data.frame"
+  )
+  columns
+}
+
 inv_is_blank <- function(x) {
   is.na(x) | !nzchar(trimws(as.character(x)))
 }
@@ -888,8 +911,9 @@ inv_reconcile_taxonomy_primary_keys <- function(
   )
   metadata <- table_metadata[
     match(expected_omitted, as.character(table_metadata$fieldName)),
-    metadata_fields, drop = FALSE
+    , drop = FALSE
   ]
+  metadata <- inv_frame_columns(metadata, metadata_fields)
   metadata <- data.frame(
     lapply(metadata, function(value) as.character(value)),
     check.names = FALSE, stringsAsFactors = FALSE
@@ -1160,8 +1184,8 @@ inv_displayed_zero_percent_inventory <- function(source) {
                         INV_COUNT_METADATA_EXPECTATION$fieldName, sep = "\u241f")
   variable_key <- paste(as.character(variables$table),
                         as.character(variables$fieldName), sep = "\u241f")
-  metadata <- variables[match(metadata_key, variable_key), metadata_fields,
-                        drop = FALSE]
+  metadata <- variables[match(metadata_key, variable_key), , drop = FALSE]
+  metadata <- inv_frame_columns(metadata, metadata_fields)
   metadata <- data.frame(lapply(metadata, as.character), check.names = FALSE,
                          stringsAsFactors = FALSE)
   inv_assert(identical(metadata, INV_COUNT_METADATA_EXPECTATION),
@@ -1637,7 +1661,7 @@ inv_validate_variables <- function(source) {
   inv_assert(!any(inv_is_blank(variables$table)) &&
                !any(inv_is_blank(variables$fieldName)),
              "variables_20120 has a missing table/fieldName identity")
-  metadata_key <- variables[c("table", "fieldName")]
+  metadata_key <- inv_frame_columns(variables, c("table", "fieldName"))
   inv_assert(!anyDuplicated(metadata_key),
              "variables_20120 has duplicate table/fieldName schema rows")
 
