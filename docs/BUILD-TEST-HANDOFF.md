@@ -1,5 +1,94 @@
 # My Little Inverts — build/test handoff
 
+## 2026-08-04 — Pass-9 governance/tooling release complete
+
+### Scope and authority
+
+- Runtime, source, data-family, and scientific authority remains full-fetch run
+  `30885526988` and merge
+  `ff23e994e289982c747b91e48c5ff0907c1672d2`, recorded in the next section.
+- Governance source `1b059cb04e32c02c171d21a9d47b22cf6c060db2` added the
+  app-local governance/knowledge package, cycle-free production identity with
+  Pages-payload domain v2, exact responsive/accessibility/live-host verification,
+  and the advisory-fixed Playwright `1.55.1` pin.
+- Committed-family run `30893786089` used `skip_download=true`: it fetched no raw
+  NEON data and made no scientific, source-receipt, release-contract, bundle,
+  derived-index, demo, social-art, or runtime-payload change.
+- Candidate `ecbb23cd313632727e78896ab4473b600b456b34` is the sole direct
+  child of `1b059cb04e32c02c171d21a9d47b22cf6c060db2`. Their delta is exactly
+  `docs/release.json`, `manifest.json`, and
+  `release/production-identity.json`.
+
+### Validated committed-family candidate
+
+Run `30893786089` completed successfully: gate `91941763502`, producer
+`91941814550`, validator `91942362091`, and restricted publisher
+`91943273883` are green. Producer artifact `8886200239` has API digest
+`sha256:30255536dd45832f234f23ac2e5f1bfd7e7acfe70613464aa63f28459796c78a`
+and contains a 36-member tarball with SHA-256
+`0ebb6207937b28a23673ce6725c119d9c9494e74cf5383f80d21d2840d6de04a`.
+Validated artifact `8886314579` has API digest
+`sha256:096d701536137a124e0b856e86c551ce63f4cc4babae787e6cb17dad213b9993`
+and contains the exact 43-member candidate allowlist in a tarball with SHA-256
+`04b34811b3bf12265b99de9276a06c3657ee19976c9fb1cc8cca2566e3e02c93`.
+Every scoped candidate file matched that artifact byte for byte.
+
+The identity/docs-receipt SHA-256 is
+`9db621075e0a0a1dc898fac266a3e70e2eaaf6c965c3b8b007712e277e28eeb3`,
+the manifest SHA-256 is
+`7dceb40616052bb22e05a1ba68b56c47896ede68d08394b67c502bc81cd1ec8d`,
+and the governance release ID is
+`sha256:e1d3f1be5620706c71a53783e87b4570c6985fe8d9ed5554ece0b51954aa7aa8`.
+The Pages payload SHA-256 is
+`43b16e7b44d160055c8fa59039d2c922e802342042b1db1238e65c0249a44fff`.
+The following runtime/data authorities are unchanged:
+
+| Authority | SHA-256 |
+| --- | --- |
+| Runtime payload | `87900f675a1ef34d4f5c47c6788fbaac08a8549d82c4ef900a1b28726e925278` |
+| Bundle family | `cbc3fa29a0a1b5ca2577310eab71170a9aa0bc587880282412322605587496c9` |
+| Release contract | `15f5686f7f048ad72f1552ada78b2328eeb5718fd27bb2ebd44ddf24312e44bf` |
+| Source receipt | `0426ccdc31b4db9e00e768e90ad28918df533fc271078ead42c31293ff138a28` |
+
+### Human review and production closure
+
+Human-authored, non-draft [PR #7](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/7)
+kept exact head `ecbb23cd313632727e78896ab4473b600b456b34`. Exact-head
+workflow `30894827652` passed: gate `91945140085`, producer `91945164618`,
+and validator `91945946170` succeeded; publisher `91950596073` was skipped
+with zero steps by design. Expected-head merge produced
+`6972817382491cc9312ae4588b75bc67ed422987`.
+
+Pages run `30896544721` succeeded on that merge (build `91950697821`, deploy
+`91950754979`, report `91950755051`). Connect publication #18
+(`019fcc1b-5672-3278-21c6-9ead85568da2`) successfully published the exact merge
+in five seconds with R 4.5.2 and all 91 required R packages; its startup log has
+no Startup Error. Production run `30896548595`, smoke job `91950703053`, passed
+exact main identity, byte-exact Pages index/art/social assets, desktop/390/320
+geometry, visible keyboard focus, no poster animation, the exact 34-site roster,
+the exact SYCA `193 / 121 / 121 / 245 / 17` statistics, Help's server round
+trip, and zero browser, request, same-origin HTTP, stylesheet, or image failures.
+Independent signed-in QA confirmed publication #18's exact merge, release ID,
+SYCA workflow, and Help round trip with no startup or browser error.
+
+### Superseded governance attempts
+
+These are withheld/cancelled safeguard evidence, not production authority:
+
+- Run `30891267045` at `ae2fd0202bc9c508d145ed20f913ca868d6969d3`
+  completed and produced candidate
+  `c81f7f506c71d6857c141de234bd4a80e6db6cb9`, but review found
+  governance/identity-lane and browser-gate defects. It received no PR, merge,
+  or production authority; the review branch was later replaced by `ecbb23c…`.
+- Run `30893151571` at `88ab1e301d316fc1c75357119966fd57d273a1a1`
+  was deliberately cancelled during producer after the remaining browser
+  dependency issue was found. It produced no artifact or candidate.
+- Run `30893443751` at `8f538de74ea060e273499c3bb7c922b299bdfd85`
+  was deliberately cancelled after producer artifact `8886057041` when
+  post-candidate exact-head workflow status remained in identity-bound
+  documentation. It produced no validated artifact, candidate, review branch,
+  or production byte.
+
 ## 2026-08-04 — Pass-9 authoritative runtime release complete
 
 ### Current position
@@ -18,11 +107,9 @@
   `30888675725` and merged with expected-head protection as `ff23e994…`.
 - Pages deployment `30890184235`, Connect publication #17, and production
   verification `30890185880` are green on that exact merge and release identity.
-- The staged governance changes strengthen the production browser gate: live
-  Pages index/art/social-image bytes must match the reviewed checkout; the cover
-  must render without horizontal clipping at 1280, 390, and 320 px with visible
-  keyboard focus; and Connect must reject console, page, request, same-origin
-  HTTP, stylesheet, or poster-image failures before its Shiny round trip passes.
+- Governance and browser-gate hardening is now separately published and recorded
+  above. It strengthens verification without replacing this runtime/science
+  authority.
 
 ### Current source-authoritative receipt and producer evidence
 
@@ -207,10 +294,10 @@ merge, Pages, Connect, and live production authority are now complete.
 | Exact-merge Pages run / identity | `30890184235` / `sha256:fcee160ddb5e6ecedbca84811dea57993263507bbb8c38570b5243d5d7644ee5` |
 | Connect publication / live round trip | #17 (`019fcbca-a610-e368-7562-54b93e2056d0`) / production run `30890185880`, job `91930207585` |
 
-Next action: publish the staged governance and enhanced browser-gate changes
-through the committed-family (`skip_download=true`) producer/validator path,
-review and merge only its exact direct-child candidate, and repeat the exact
-Pages/Connect identity plus enhanced responsive/live Shiny production gate.
+Governance/tooling publication is complete. It changed no source, science,
+bundle, derived-index, or runtime-payload byte. Next action is the suite Driver
+closeout and cross-product synthesis; do not reopen this handoff merely to record
+its own documentation-only merge.
 
 ## 2026-08-03 — Previous production baseline
 
