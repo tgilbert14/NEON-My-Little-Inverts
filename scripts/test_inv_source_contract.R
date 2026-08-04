@@ -32,6 +32,10 @@ expect_true <- function(value, label) {
 
 fixture_source <- function() {
   field <- data.frame(
+    uid = c(
+      "20000000-0000-4000-8000-000000000001",
+      "20000000-0000-4000-8000-000000000002"
+    ),
     namedLocation = c("SYCA.AOS.reach", "SYCA.AOS.reach"),
     eventID = c("SYCA.2024.spring", "SYCA.2024.fall"),
     sampleID = c("SYCA.INV.S1", NA_character_),
@@ -58,20 +62,31 @@ fixture_source <- function() {
   held_rows$namedLocation <- paste0(other_sites, ".AOS.reach")
   held_rows$eventID <- paste0(other_sites, ".2024.held")
   held_rows$sampleNumber <- as.character(seq_along(other_sites) + 2L)
+  held_rows$uid <- sprintf(
+    "20000000-0000-4000-8000-%012d", seq_along(other_sites) + 2L
+  )
   held_rows$siteID <- other_sites
   held_rows$decimalLatitude <- seq(30, 46, length.out = length(other_sites))
   held_rows$decimalLongitude <- seq(-120, -70, length.out = length(other_sites))
   field <- rbind(field, held_rows)
   dna_row <- field[1, , drop = FALSE]
+  dna_row$uid <- "20000000-0000-4000-8000-000000000099"
   dna_row$eventID <- "SYCA.2024.metabarcode"
   dna_row$sampleID <- "SYCA.INV.S1.DNA"
-  dna_row$sampleCode <- "INV-S1-DNA"
+  dna_row$sampleCode <- NA_character_
   dna_row$sampleNumber <- "DNA"
   field <- rbind(field, dna_row)
 
   per_sample <- data.frame(
+    uid = "00000000-0000-4000-8000-000000000001",
+    siteID = "SYCA",
+    collectDate = "2024-03-01 00:00:00",
     sampleID = "SYCA.INV.S1",
     sampleCode = "INV-S1",
+    testProtocolVersion = "fixture_macroinvertebrate_identification",
+    primaryMatrix = "fine organic",
+    laboratoryName = "Fixture Laboratory",
+    sortDate = "2024-03-14",
     dataQF = "persample review flag",
     qcSortDate = "2024-03-15",
     qcSortingEfficacy = 98.5,
@@ -84,12 +99,18 @@ fixture_source <- function() {
     release = INV_RELEASE,
     stringsAsFactors = FALSE
   )
+  dna_per_sample <- per_sample
+  dna_per_sample$uid <- "00000000-0000-4000-8000-000000000099"
+  dna_per_sample$sampleID <- "SYCA.INV.S1.DNA"
+  dna_per_sample$sampleCode <- NA_character_
+  per_sample <- rbind(per_sample, dna_per_sample)
 
   taxonomy <- data.frame(
+    uid = "10000000-0000-4000-8000-000000000001",
+    siteID = "SYCA",
     sampleID = "SYCA.INV.S1",
     sampleCode = "INV-S1",
-    slideID = NA_character_,
-    slideCode = NA_character_,
+    targetTaxaPresent = "Y",
     scientificName = "Baetis",
     morphospeciesID = NA_character_,
     invertebrateLifeStage = "larva",
@@ -111,11 +132,17 @@ fixture_source <- function() {
     estimatedTotalCount = 2,
     subsamplePercent = 100,
     qcChecked = "Y",
+    laboratoryName = "Fixture Laboratory",
     dataQF = "taxonomy review note",
     publicationDate = "2026-01-23T00:00:00Z",
     release = INV_RELEASE,
     stringsAsFactors = FALSE
   )
+  dna_taxonomy <- taxonomy
+  dna_taxonomy$uid <- "10000000-0000-4000-8000-000000000099"
+  dna_taxonomy$sampleID <- "SYCA.INV.S1.DNA"
+  dna_taxonomy$sampleCode <- NA_character_
+  taxonomy <- rbind(taxonomy, dna_taxonomy)
 
   table_list <- list(
     inv_fieldData = field,
@@ -132,6 +159,8 @@ fixture_source <- function() {
         vapply(table_list[[table_name]], is.numeric, logical(1)), "real", "string"
       ),
       units = "",
+      downloadPkg = "basic",
+      pubFormat = "asIs",
       primaryKey = ifelse(fields %in% INV_PRIMARY_KEYS[[table_name]], "Y", "N"),
       categoricalCodeName = ifelse(
         table_name == "inv_fieldData" & fields == "samplingImpractical",
@@ -140,6 +169,13 @@ fixture_source <- function() {
       stringsAsFactors = FALSE
     )
   }))
+  omission_rows <- data.frame(
+    table = rep("inv_taxonomyProcessed",
+                nrow(INV_BASIC_TAXONOMY_OMISSION_METADATA)),
+    INV_BASIC_TAXONOMY_OMISSION_METADATA,
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+  variable_rows <- rbind(variable_rows, omission_rows[names(variable_rows)])
   measurement_key <- paste(INV_MEASUREMENT_METADATA$table,
                            INV_MEASUREMENT_METADATA$fieldName, sep = "\u241f")
   variable_key <- paste(variable_rows$table, variable_rows$fieldName,
@@ -193,6 +229,215 @@ fixture_source <- function() {
 valid <- fixture_source()
 names(valid)[names(valid) == "citation_20120_RELEASE.2026"] <- INV_CITATION_OBJECT
 
+# Production pins the full RELEASE-2026 collision inventory. Synthetic tests
+# use their independently computed inventory while asserting the production
+# constants explicitly and exercising the same fail-closed comparator below.
+RELEASE_TAXONOMY_COLLISION_EXPECTATION <-
+  INV_TAXONOMY_COLLISION_EXPECTATION
+RELEASE_DNA_FAMILY_EXPECTATION <- INV_DNA_FAMILY_EXPECTATION
+RELEASE_SAMPLE_IDENTITY_EXPECTATION <- INV_SAMPLE_IDENTITY_EXPECTATION
+RELEASE_UNRESOLVED_TAXONOMY_EXPECTATION <-
+  INV_UNRESOLVED_TAXONOMY_EXPECTATION
+expect_true(
+  identical(RELEASE_TAXONOMY_COLLISION_EXPECTATION$groups, 1284L) &&
+    identical(RELEASE_TAXONOMY_COLLISION_EXPECTATION$rows, 3683L) &&
+    identical(
+      RELEASE_TAXONOMY_COLLISION_EXPECTATION$inventory_sha256,
+      "b3cabe1d9ec5435c9e10f05ef49ff9b299fcab719cc03fa46fc480acd3024fb5"
+    ),
+  "production taxonomy collision inventory is release-exact"
+)
+expect_true(
+  identical(unname(RELEASE_DNA_FAMILY_EXPECTATION$rows), c(3L, 3L, 172L)) &&
+    identical(sum(RELEASE_DNA_FAMILY_EXPECTATION$rows), 178L) &&
+    identical(length(RELEASE_DNA_FAMILY_EXPECTATION$sample_ids), 3L),
+  "production .DNA family quarantine is release-exact"
+)
+expect_true(
+  identical(RELEASE_SAMPLE_IDENTITY_EXPECTATION$practical_field_rows, 6485L) &&
+    identical(RELEASE_SAMPLE_IDENTITY_EXPECTATION$impractical_field_rows, 713L) &&
+    identical(RELEASE_SAMPLE_IDENTITY_EXPECTATION$processed_without_taxonomy, 0L) &&
+    identical(
+      RELEASE_SAMPLE_IDENTITY_EXPECTATION$practical_without_per_sample, 43L
+    ) &&
+    identical(
+      RELEASE_SAMPLE_IDENTITY_EXPECTATION$taxonomy_without_per_sample_rows, 10L
+    ) &&
+    identical(length(
+      RELEASE_SAMPLE_IDENTITY_EXPECTATION$taxonomy_without_per_sample_ids
+    ), 9L),
+  "production sampleID-primary relationship inventory is release-exact"
+)
+expect_true(
+  identical(RELEASE_UNRESOLVED_TAXONOMY_EXPECTATION$rows, 31L) &&
+    identical(RELEASE_UNRESOLVED_TAXONOMY_EXPECTATION$samples, 31L),
+  "production unresolved taxonomy placeholder inventory is release-exact"
+)
+expect_true(
+  identical(INV_DISPLAYED_ZERO_PERCENT_EXPECTATION$taxonomy_rows, 53L) &&
+    identical(
+      INV_DISPLAYED_ZERO_PERCENT_EXPECTATION$nonexact_200x_individual_rows,
+      53L
+    ) &&
+    identical(INV_COUNT_METADATA_EXPECTATION$pubFormat,
+              rep("integer", 3L)) &&
+    grepl(
+      "GREATER_THAN_OR_EQUAL_TO\\(0\\)",
+      INV_COUNT_VALIDATION_EXPECTATION$entryValidationRulesParser[[4L]]
+    ),
+  "production displayed-zero authoritative-estimate contract is release-exact"
+)
+# All remaining fixtures are deliberately tiny and omit the two exact
+# production-only source families; absence is allowed only under this explicit
+# synthetic mode.
+INV_SYNTHETIC_FIXTURE_MODE <- TRUE
+INV_TAXONOMY_COLLISION_EXPECTATION <- inv_taxonomy_collision_inventory(
+  valid$inv_taxonomyProcessed
+)
+INV_DNA_FAMILY_EXPECTATION <- inv_dna_family_inventory(valid)$audit
+fixture_field <- valid$inv_fieldData[
+  !inv_metabarcode_mask(valid$inv_fieldData$sampleID, "fixture field"),
+  , drop = FALSE
+]
+fixture_per <- valid$inv_persample[
+  !inv_metabarcode_mask(valid$inv_persample$sampleID, "fixture per-sample"),
+  , drop = FALSE
+]
+fixture_taxonomy <- valid$inv_taxonomyProcessed[
+  !inv_metabarcode_mask(
+    valid$inv_taxonomyProcessed$sampleID, "fixture taxonomy"
+  ),
+  , drop = FALSE
+]
+INV_UNRESOLVED_TAXONOMY_EXPECTATION <- inv_unresolved_taxonomy_inventory(
+  fixture_taxonomy
+)
+INV_SAMPLE_IDENTITY_EXPECTATION <- inv_sample_identity_inventory(
+  fixture_field, fixture_per, fixture_taxonomy
+)
+
+expect_true(
+  identical(
+    inv_source_publication_dates(
+      c(
+        "20251204T230818Z", "2025-12-05T00:09:25Z", "2025-12-06"
+      ),
+      "publication fixture"
+    ),
+    as.Date(c("2025-12-04", "2025-12-05", "2025-12-06"))
+  ),
+  paste(
+    "source authority accepts only exact compact UTC, canonical ISO UTC,",
+    "and intentional date-only character forms"
+  )
+)
+expect_true(
+  identical(
+    inv_source_publication_dates(
+      as.Date(c("2025-12-04", "2025-12-05")), "Date fixture"
+    ),
+    as.Date(c("2025-12-04", "2025-12-05"))
+  ) && identical(
+    inv_source_publication_dates(
+      as.POSIXct(
+        c("2025-12-04 23:59:59", "2025-12-05 00:00:01"), tz = "UTC"
+      ),
+      "POSIX fixture"
+    ),
+    as.Date(c("2025-12-04", "2025-12-05"))
+  ),
+  "source authority assigns Date and POSIX publication values explicit UTC dates"
+)
+non_utc_posixlt <- as.POSIXlt(
+  as.POSIXct("2025-12-04 23:30:00", tz = "America/New_York"),
+  tz = "America/New_York"
+)
+expect_true(
+  identical(
+    inv_source_publication_dates(
+      non_utc_posixlt, "non-UTC POSIXlt fixture"
+    ),
+    as.Date("2025-12-05")
+  ),
+  paste(
+    "source authority preserves a non-UTC POSIXlt instant before UTC",
+    "calendar-day projection"
+  )
+)
+invalid_publication_dates <- c(
+  "2025-12-04T23:08:18Z trailing",
+  "2025-12-04T24:00:00Z",
+  "2025-12-04T23:60:00Z",
+  "2025-12-04T23:08:60Z",
+  "2025-02-29T23:08:18Z",
+  "20250229T230818Z",
+  "2025-02-29",
+  "2025-12-04 23:08:18",
+  "2025-12-04T23:08:18+00:00"
+)
+for (bad_value in invalid_publication_dates) {
+  expect_error(
+    inv_source_publication_dates(
+      c("2025-12-04T23:08:18Z", bad_value), "publication fixture"
+    ),
+    "publication fixture has malformed publicationDate at row 2"
+  )
+}
+expect_error(
+  inv_source_publication_dates(
+    c(20251204, 20251205), "numeric publication fixture"
+  ),
+  "numeric publication fixture has malformed publicationDate at row 1"
+)
+expect_error(
+  inv_source_publication_dates(
+    structure(c(Inf, 1.5), class = "Date"), "invalid Date fixture"
+  ),
+  "invalid Date fixture has malformed publicationDate at row 1"
+)
+expect_error(
+  inv_source_publication_dates(
+    structure(Inf, class = c("POSIXct", "POSIXt"), tzone = "UTC"),
+    "invalid POSIX fixture"
+  ),
+  "invalid POSIX fixture has malformed publicationDate at row 1"
+)
+expect_error(
+  inv_source_publication_dates(
+    as.POSIXlt(
+      structure(
+        Inf, class = c("POSIXct", "POSIXt"),
+        tzone = "America/New_York"
+      ),
+      tz = "America/New_York"
+    ),
+    "invalid POSIXlt fixture"
+  ),
+  "invalid POSIXlt fixture has malformed publicationDate at row 1"
+)
+
+# Each authoritative required table must reject one malformed value among
+# otherwise valid rows before a receipt can be issued or a producer can derive
+# its maximum publication stamp.
+for (table_name in INV_REQUIRED_TABLES) {
+  bad_publication_source <- valid
+  bad_publication_source[[table_name]]$publicationDate[[2L]] <-
+    "2025-12-04T23:08:18Z trailing"
+  expect_error(
+    inv_validate_source(bad_publication_source),
+    sprintf("%s has malformed publicationDate at row 2", table_name)
+  )
+}
+bad_receipt_source <- valid
+bad_receipt_source$inv_fieldData$publicationDate[[2L]] <- "2025-12-04T24:00:00Z"
+expect_error(
+  inv_build_source_receipt(
+    bad_receipt_source, tempfile("unpublished-source-"),
+    "2026-07-15T12:00:00Z", FIXTURE_GIT_SHA
+  ),
+  "inv_fieldData has malformed publicationDate at row 2"
+)
+
 summary <- inv_validate_source(valid)
 expect_true(identical(names(summary$tables), INV_REQUIRED_TABLES),
             "valid fixture carries all required analysis tables")
@@ -201,9 +446,12 @@ expect_true(identical(summary$relations$practical_field_rows, 1L),
 expect_true(identical(summary$relations$impractical_field_rows, 34L),
             "valid fixture counts impractical field rows")
 expect_true(identical(names(summary$relations), c(
-  "practical_field_rows", "impractical_field_rows",
-  "processed_without_taxonomy"
-)), "source relation receipt uses exact unknown-not-zero terminology")
+  "practical_field_rows", "impractical_field_rows", "per_sample_rows",
+  "taxonomy_rows", "processed_without_taxonomy", "blank_sample_code_rows",
+  "practical_without_per_sample", "taxonomy_without_per_sample_ids",
+  "taxonomy_without_per_sample_rows", "projection_sha256",
+  "uid_inventory_sha256"
+)), "source relation receipt uses the sampleID-primary audited schema")
 expect_true(identical(summary$relations$processed_without_taxonomy, 0L),
             "valid fixture has no processed sample without taxonomy")
 expect_true(identical(summary$segregation$collection_field_rows, 35L),
@@ -213,11 +461,193 @@ expect_true(identical(summary$segregation$metabarcode_field_rows, 1L),
 expect_true(identical(summary$segregation$metabarcode_sample_ids,
                       "SYCA.INV.S1.DNA"),
             "valid fixture records the segregated .DNA identity")
+expect_true(
+  identical(
+    summary$segregation$taxonomy_key_reconciliation$status,
+    "uid_surrogate_for_omitted_slide_identity"
+  ) &&
+    identical(
+      summary$segregation$taxonomy_key_reconciliation$omitted_fields,
+      INV_BASIC_TAXONOMY_OMISSION_METADATA$fieldName
+    ) &&
+    identical(
+      summary$segregation$taxonomy_key_reconciliation$rows_excluded_from_science,
+      0L
+    ),
+  "valid fixture records exact omission provenance without dropping taxonomy"
+)
+expect_true(
+  identical(
+    summary$segregation$dna_family_quarantine$status,
+    "quarantined_from_collection_estimand"
+  ) &&
+    identical(summary$segregation$dna_family_quarantine$raw_rows_retained, 3L) &&
+    identical(
+      summary$segregation$dna_family_quarantine$excluded_from_science_rows, 3L
+    ),
+  "valid fixture quarantines the exact .DNA family while retaining raw evidence"
+)
+expect_true(
+  identical(
+    summary$segregation$unresolved_taxonomy$status,
+    "retained_count_unavailable_placeholders"
+  ) &&
+    identical(
+      summary$segregation$unresolved_taxonomy$rows_excluded_from_science, 0L
+    ),
+  "valid fixture keeps unresolved taxonomy placeholders explicit and nonzero"
+)
+expect_true(
+  identical(summary$segregation$per_sample_quarantine$status, "not_present") &&
+    identical(summary$segregation$displayed_zero_percent$status, "not_present"),
+  "synthetic mode explicitly records absent production-only source families"
+)
+expect_error(
+  inv_partition_audited_per_sample(
+    valid$inv_persample, valid$inv_taxonomyProcessed,
+    synthetic_fixture = FALSE
+  ),
+  "Audited auxiliary FLNT photo-identification row/pair is missing"
+)
 expect_true(all(vapply(names(INV_VF_QC_COLUMNS), function(table_name) {
   all(INV_VF_QC_COLUMNS[[table_name]] %in% names(valid[[table_name]]))
 }, logical(1))), "valid fixture carries every official vF QC field")
 expect_true(all(INV_ISSUE_LOG_COLUMNS %in% names(valid$issueLog_20120)),
             "valid fixture carries the full official issue-log schema")
+
+portable_fixture <- list(
+  frame = data.frame(
+    integer_altrep = 1:10000,
+    character_altrep = as.character(1:10000),
+    timestamp = as.POSIXct(
+      "2026-01-01 00:00:00", tz = "UTC"
+    ) + seq_len(10000),
+    stringsAsFactors = FALSE
+  )
+)
+portable_materialized <- inv_materialize_source(portable_fixture)
+portable_path <- tempfile(fileext = ".rds")
+saveRDS(portable_materialized, portable_path, version = 3)
+expect_true(
+  identical(readRDS(portable_path), portable_materialized) &&
+    inherits(portable_materialized$frame$timestamp, "POSIXct") &&
+    identical(attr(portable_materialized$frame$timestamp, "tzone"), "UTC"),
+  "atomic source materialization preserves values/classes through exact bytes"
+)
+unlink(portable_path)
+
+placeholder_coexisting <- fixture_taxonomy[1, , drop = FALSE]
+placeholder_coexisting$uid <- "10000000-0000-4000-8000-000000000011"
+placeholder_coexisting$targetTaxaPresent <- "N"
+placeholder_coexisting$acceptedTaxonID <- NA_character_
+placeholder_coexisting$scientificName <- NA_character_
+placeholder_coexisting$taxonRank <- NA_character_
+placeholder_coexisting$individualCount <- NA_real_
+placeholder_coexisting$estimatedTotalCount <- NA_real_
+placeholder_coexisting$subsamplePercent <- NA_real_
+placeholder_coexisting$identificationRemarks <- "no organisms found"
+placeholder_coexisting$sampleCondition <- NA_character_
+placeholder_only <- placeholder_coexisting
+placeholder_only$uid <- "10000000-0000-4000-8000-000000000012"
+placeholder_only$sampleID <- "PLACEHOLDER.ONLY"
+placeholder_only$sampleCode <- NA_character_
+placeholder_fixture <- rbind(
+  fixture_taxonomy[1, , drop = FALSE], placeholder_coexisting,
+  placeholder_only
+)
+placeholder_audit <- inv_unresolved_taxonomy_inventory(placeholder_fixture)
+expect_true(
+  identical(placeholder_audit$rows, 2L) &&
+    identical(placeholder_audit$samples_with_other_count_valid_taxa, 1L) &&
+    identical(placeholder_audit$placeholder_only_samples, 1L),
+  "unresolved placeholders cover both coexisting and placeholder-only samples"
+)
+bad_placeholder <- placeholder_fixture
+bad_placeholder$estimatedTotalCount[[3L]] <- 0
+expect_error(
+  inv_unresolved_taxonomy_inventory(bad_placeholder),
+  "placeholder has a reported individual or estimated count"
+)
+
+bad <- valid
+bad$inv_taxonomyProcessed$slideID <- NA_character_
+expect_error(
+  inv_reconcile_taxonomy_primary_keys(
+    bad$inv_taxonomyProcessed, bad$variables_20120, expectation = NULL
+  ),
+  "taxonomy source omission differs from the exact eight"
+)
+
+bad <- valid
+row <- bad$variables_20120$table == "inv_taxonomyProcessed" &
+  bad$variables_20120$fieldName == "slideID"
+bad$variables_20120$downloadPkg[row] <- "basic"
+expect_error(
+  inv_validate_source(bad),
+  "taxonomy omission evidence differs from RELEASE-2026"
+)
+
+bad <- valid
+bad$inv_taxonomyProcessed$uid[[1L]] <- ""
+expect_error(inv_validate_source(bad), "UID surrogate must be globally nonblank")
+
+# Exercise an authorized collision without inventing slide values: both source
+# records remain, UID differentiates them, and any inventory drift fails.
+collision_source <- valid
+collision_row <- collision_source$inv_taxonomyProcessed[1, , drop = FALSE]
+collision_row$uid <- "10000000-0000-4000-8000-000000000002"
+collision_row$individualCount <- 3L
+collision_row$estimatedTotalCount <- 3
+collision_source$inv_taxonomyProcessed <- rbind(
+  collision_source$inv_taxonomyProcessed, collision_row
+)
+fixture_collision_expectation <- inv_taxonomy_collision_inventory(
+  collision_source$inv_taxonomyProcessed
+)
+INV_TAXONOMY_COLLISION_EXPECTATION <- fixture_collision_expectation
+collision_analysis <- inv_prepare_analysis_source(collision_source)$source
+INV_SAMPLE_IDENTITY_EXPECTATION <- inv_sample_identity_inventory(
+  collision_analysis$inv_fieldData,
+  collision_analysis$inv_persample,
+  collision_analysis$inv_taxonomyProcessed
+)
+collision_summary <- inv_validate_source(collision_source)
+expect_true(
+  identical(
+    collision_summary$segregation$taxonomy_key_reconciliation$rows, 2L
+  ) &&
+    identical(nrow(
+      inv_prepare_analysis_source(collision_source)$source$inv_taxonomyProcessed
+    ), 2L),
+  "audited UID-surrogate collision preserves and sums every taxonomy row"
+)
+
+bad <- collision_source
+bad$inv_taxonomyProcessed$uid[[nrow(bad$inv_taxonomyProcessed)]] <-
+  bad$inv_taxonomyProcessed$uid[[1L]]
+expect_error(inv_validate_source(bad), "UID surrogate must be globally nonblank")
+
+bad <- collision_source
+bad$inv_taxonomyProcessed$laboratoryName[[nrow(
+  bad$inv_taxonomyProcessed
+)]] <- "Unexpected Laboratory"
+expect_error(inv_validate_source(bad),
+             "identity spans missing or multiple laboratories")
+
+drift_expectation <- fixture_collision_expectation
+drift_expectation$rows <- drift_expectation$rows + 1L
+expect_error(
+  inv_assert_taxonomy_collision_inventory(
+    fixture_collision_expectation, drift_expectation
+  ),
+  "collision inventory differs from the audited RELEASE-2026 source"
+)
+INV_TAXONOMY_COLLISION_EXPECTATION <- inv_taxonomy_collision_inventory(
+  valid$inv_taxonomyProcessed
+)
+INV_SAMPLE_IDENTITY_EXPECTATION <- inv_sample_identity_inventory(
+  fixture_field, fixture_per, fixture_taxonomy
+)
 
 bad <- valid
 bad$issueLog_20120 <- NULL
@@ -238,11 +668,8 @@ names(bad)[2] <- names(bad)[1]
 expect_error(inv_validate_source(bad), "duplicate object names")
 
 bad <- valid
-dna_row_index <- grepl("[.]DNA$", bad$inv_fieldData$sampleID)
-bad$inv_fieldData$siteID[dna_row_index] <- "WLOU"
-bad$inv_fieldData <- bad$inv_fieldData[
-  !(bad$inv_fieldData$siteID == "WLOU" & !dna_row_index), , drop = FALSE
-]
+wlo <- as.character(bad$inv_fieldData$siteID) == "WLOU"
+bad$inv_fieldData$siteID[wlo] <- "SYCA"
 expect_error(inv_validate_source(bad), "non-[.]DNA inv_fieldData site roster differs.*missing=\\[WLOU\\]")
 
 bad <- valid
@@ -257,7 +684,7 @@ duplicate_dna <- bad$inv_fieldData[
 duplicate_dna$eventID <- "SYCA.2024.metabarcode.duplicate"
 duplicate_dna$sampleNumber <- "DNA-DUPLICATE"
 bad$inv_fieldData <- rbind(bad$inv_fieldData, duplicate_dna)
-expect_error(inv_validate_source(bad), "[.]DNA inv_fieldData has an ambiguous repeated sampleID")
+expect_error(inv_validate_source(bad), "[.]DNA family UID inventory")
 
 bad <- valid
 dna_field <- bad$inv_fieldData[grepl("[.]DNA$", bad$inv_fieldData$sampleID), ]
@@ -265,15 +692,18 @@ dna_per_sample <- bad$inv_persample[1, ]
 dna_per_sample$sampleID <- dna_field$sampleID
 dna_per_sample$sampleCode <- dna_field$sampleCode
 bad$inv_persample <- rbind(bad$inv_persample, dna_per_sample)
-expect_error(inv_validate_source(bad), "inv_persample contains [.]DNA rows")
+expect_error(inv_validate_source(bad),
+             "[.]DNA family inventory differs from the audited RELEASE-2026")
 
 bad <- valid
 dna_field <- bad$inv_fieldData[grepl("[.]DNA$", bad$inv_fieldData$sampleID), ]
 dna_taxonomy <- bad$inv_taxonomyProcessed[1, ]
+dna_taxonomy$uid <- "10000000-0000-4000-8000-000000000098"
 dna_taxonomy$sampleID <- dna_field$sampleID
 dna_taxonomy$sampleCode <- dna_field$sampleCode
 bad$inv_taxonomyProcessed <- rbind(bad$inv_taxonomyProcessed, dna_taxonomy)
-expect_error(inv_validate_source(bad), "inv_taxonomyProcessed contains [.]DNA rows")
+expect_error(inv_validate_source(bad),
+             "[.]DNA family inventory differs from the audited RELEASE-2026")
 
 bad <- valid
 bad$inv_fieldData$collectDate <- NULL
@@ -348,23 +778,25 @@ bad <- valid
 bad$inv_taxonomyProcessed <- rbind(
   bad$inv_taxonomyProcessed, bad$inv_taxonomyProcessed[1, ]
 )
-expect_error(inv_validate_source(bad), "duplicate RELEASE-2026 primary key")
+expect_error(inv_validate_source(bad), "UID surrogate must be globally nonblank")
 
 bad <- valid
-bad$inv_persample$sampleCode <- ""
-expect_error(inv_validate_source(bad), "missing sampleID/sampleCode")
+bad$inv_persample$sampleCode[[1L]] <- ""
+expect_error(inv_validate_source(bad),
+             "sampleCode disagrees with practical field provenance")
 
 bad <- valid
 bad$inv_persample <- bad$inv_persample[FALSE, , drop = FALSE]
 expect_error(inv_validate_source(bad), "inv_persample has no rows")
 
 bad <- valid
-bad$inv_persample$sampleID <- "ORPHAN"
-expect_error(inv_validate_source(bad), "practical inv_fieldData sample.*has no inv_persample")
+bad$inv_persample$sampleID[[1L]] <- "ORPHAN"
+expect_error(inv_validate_source(bad),
+             "inv_persample sample ORPHAN has no practical inv_fieldData parent")
 
 bad <- valid
-bad$inv_taxonomyProcessed$sampleID <- "ORPHAN"
-expect_error(inv_validate_source(bad), "has no inv_persample parent")
+bad$inv_taxonomyProcessed$sampleID[[1L]] <- "ORPHAN"
+expect_error(inv_validate_source(bad), "has no practical field parent")
 
 bad <- valid
 bad$inv_fieldData$samplingImpractical[1] <- "location dry"
@@ -372,7 +804,7 @@ expect_error(inv_validate_source(bad), "has no practical inv_fieldData parent")
 
 bad <- valid
 bad$inv_fieldData$samplingImpractical[2] <- "OK"
-expect_error(inv_validate_source(bad), "missing sampleID/sampleCode")
+expect_error(inv_validate_source(bad), "practical inv_fieldData has a missing sampleID")
 
 bad <- valid
 bad$inv_taxonomyProcessed$release <- "PROVISIONAL"
@@ -388,21 +820,32 @@ expect_error(inv_validate_source(bad), "does not contain DOI")
 # One practical field/per-sample pair with no taxonomy child is retained as a
 # candidate; later science-contract work must classify it before publication.
 zero_candidate <- valid
-zero_candidate$inv_taxonomyProcessed$sampleID <- "SECOND"
-zero_candidate$inv_taxonomyProcessed$sampleCode <- "SECOND"
+zero_candidate$inv_taxonomyProcessed$sampleID[[1L]] <- "SECOND"
+zero_candidate$inv_taxonomyProcessed$sampleCode[[1L]] <- "SECOND"
 second_field <- zero_candidate$inv_fieldData[1, ]
+second_field$uid <- "20000000-0000-4000-8000-000000000098"
 second_field$sampleID <- "SECOND"
 second_field$sampleCode <- "SECOND"
 second_field$sampleNumber <- "3"
 second_field$eventID <- "SYCA.2024.second"
 zero_candidate$inv_fieldData <- rbind(zero_candidate$inv_fieldData, second_field)
 second_per <- zero_candidate$inv_persample[1, ]
+second_per$uid <- "00000000-0000-4000-8000-000000000098"
 second_per$sampleID <- "SECOND"
 second_per$sampleCode <- "SECOND"
 zero_candidate$inv_persample <- rbind(zero_candidate$inv_persample, second_per)
+zero_analysis <- inv_prepare_analysis_source(zero_candidate)$source
+INV_SAMPLE_IDENTITY_EXPECTATION <- inv_sample_identity_inventory(
+  zero_analysis$inv_fieldData,
+  zero_analysis$inv_persample,
+  zero_analysis$inv_taxonomyProcessed
+)
 zero_summary <- inv_validate_source(zero_candidate)
 expect_true(identical(zero_summary$relations$processed_without_taxonomy, 1L),
             "per-sample row without taxonomy is retained as an unknown outcome")
+INV_SAMPLE_IDENTITY_EXPECTATION <- inv_sample_identity_inventory(
+  fixture_field, fixture_per, fixture_taxonomy
+)
 
 evidence_root_a <- tempfile("inv-fetch-evidence-a-")
 evidence_root_b <- tempfile("inv-fetch-evidence-b-")

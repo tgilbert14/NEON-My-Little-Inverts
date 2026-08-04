@@ -21,11 +21,124 @@ expect_error <- function(expr, pattern, label) {
   }
 }
 
+expect_true(
+  identical(
+    inv_producer_dates(c(
+      "20251204T230818Z", "2025-12-05T00:09:25Z", "2025-12-06"
+    )),
+    as.Date(c("2025-12-04", "2025-12-05", "2025-12-06"))
+  ),
+  paste(
+    "exact compact UTC, canonical ISO UTC, and intentional date-only",
+    "publicationDate values parse to their UTC calendar date"
+  )
+)
+expect_true(
+  all(is.na(inv_producer_dates(c(
+    "2025-12-04T23:08:18Z trailing",
+    "2025-12-04T24:00:00Z",
+    "2025-12-04T23:60:00Z",
+    "2025-12-04T23:08:60Z",
+    "2025-02-29T23:08:18Z",
+    "20250229T230818Z",
+    "2025-02-29",
+    "2025-12-04 23:08:18",
+    "2025-12-04T23:08:18+00:00",
+    "not-a-date",
+    NA_character_
+  )))),
+  "malformed, non-UTC, noncanonical, and calendar-invalid values fail closed"
+)
+expect_true(
+  all(is.na(inv_producer_dates(c(20251204, 20251205)))),
+  "numeric publication encodings fail closed instead of becoming calendar dates"
+)
+expect_true(
+  all(is.na(inv_producer_dates(structure(c(Inf, 1.5), class = "Date")))) &&
+    all(is.na(inv_producer_dates(structure(
+      Inf, class = c("POSIXct", "POSIXt"), tzone = "UTC"
+    )))) &&
+    all(is.na(inv_producer_dates(as.POSIXlt(
+      structure(
+        Inf, class = c("POSIXct", "POSIXt"),
+        tzone = "America/New_York"
+      ),
+      tz = "America/New_York"
+    )))),
+  paste(
+    "nonfinite and fractional class-backed publication values, including",
+    "non-UTC POSIXlt values, fail closed"
+  )
+)
+expect_true(
+  identical(inv_producer_dates(as.Date(c("2025-12-04", "2025-12-05"))),
+            as.Date(c("2025-12-04", "2025-12-05"))) &&
+    identical(
+      inv_producer_dates(as.POSIXct(
+        c("2025-12-04 23:59:59", "2025-12-05 00:00:01"), tz = "UTC"
+      )),
+      as.Date(c("2025-12-04", "2025-12-05"))
+  ),
+  "Date and POSIX publication stamps retain explicit UTC date semantics"
+)
+non_utc_posixlt <- as.POSIXlt(
+  as.POSIXct("2025-12-04 23:30:00", tz = "America/New_York"),
+  tz = "America/New_York"
+)
+expect_true(
+  identical(inv_producer_dates(non_utc_posixlt), as.Date("2025-12-05")),
+  paste(
+    "non-UTC POSIXlt publication stamps preserve their instant before",
+    "UTC calendar-day projection"
+  )
+)
 # Reuse the source-contract fixture without coupling the producer to its tests.
 fixture_env <- new.env(parent = globalenv())
 invisible(capture.output(sys.source("scripts/test_inv_source_contract.R",
                                     envir = fixture_env)))
 source_fixture <- fixture_env$valid
+INV_SYNTHETIC_FIXTURE_MODE <- TRUE
+INV_TAXONOMY_COLLISION_EXPECTATION <-
+  fixture_env$INV_TAXONOMY_COLLISION_EXPECTATION
+INV_DNA_FAMILY_EXPECTATION <- fixture_env$INV_DNA_FAMILY_EXPECTATION
+INV_SAMPLE_IDENTITY_EXPECTATION <- fixture_env$INV_SAMPLE_IDENTITY_EXPECTATION
+INV_UNRESOLVED_TAXONOMY_EXPECTATION <-
+  fixture_env$INV_UNRESOLVED_TAXONOMY_EXPECTATION
+
+compact_publication_source <- source_fixture
+for (table_name in INV_REQUIRED_TABLES) {
+  compact_publication_source[[table_name]]$publicationDate <- rep(
+    "20251206T143059Z", nrow(compact_publication_source[[table_name]])
+  )
+}
+expect_true(
+  identical(
+    inv_producer_publication_stamp(compact_publication_source), "2025-12-06"
+  ),
+  "producer derives the publication stamp from the production compact UTC form"
+)
+for (table_name in INV_REQUIRED_TABLES) {
+  mixed_publication_source <- source_fixture
+  mixed_publication_source[[table_name]]$publicationDate[[2L]] <-
+    "2025-12-04T23:08:18Z trailing"
+  expect_error(
+    inv_producer_publication_stamp(mixed_publication_source),
+    sprintf("unparseable publicationDate in %s", table_name),
+    sprintf(
+      "producer stamp rejects one malformed value among valid %s dates",
+      table_name
+    )
+  )
+}
+numeric_publication_source <- source_fixture
+numeric_publication_source$inv_fieldData$publicationDate <- rep(
+  20251204, nrow(numeric_publication_source$inv_fieldData)
+)
+expect_error(
+  inv_producer_publication_stamp(numeric_publication_source),
+  "unparseable publicationDate in inv_fieldData",
+  "producer stamp rejects numeric publication encodings before taking a maximum"
+)
 
 temp_root <- tempfile("inv-producer-fixture-")
 dir.create(temp_root)
@@ -75,7 +188,7 @@ inv_produce_verified_release(artifact_path, receipt_path, out_b)
 
 summary <- inv_verify_release_data(out_a)
 raw_summary <- inv_verify_release_against_source(
-  out_a, artifact_path, receipt_path
+  out_a, artifact_path, receipt_path, production_exact = FALSE
 )
 expect_true(identical(summary$sites, 34L),
             "producer and independent verifier retain all 34 sites")
@@ -158,6 +271,36 @@ expect_true(identical(as.integer(site_index$n_unstratifiable),
 expect_true(!any(grepl("density_m2|richness|chao|raref|health",
                        names(site_index), ignore.case = TRUE)),
             "network index is support-only and has no ecological rank fields")
+
+masked_analysis <- inv_prepare_analysis_source(source_fixture)$source
+masked_analysis$inv_fieldData$habitatType[
+  masked_analysis$inv_fieldData$sampleID %in% "SYCA.INV.S1"
+] <- NA_character_
+masked_analysis$inv_taxonomyProcessed <-
+  masked_analysis$inv_taxonomyProcessed[
+    !masked_analysis$inv_taxonomyProcessed$sampleID %in% "SYCA.INV.S1",
+    , drop = FALSE
+  ]
+masked_science <- build_inv_science_contract(masked_analysis)
+masked_syca <- syca
+masked_syca$opportunities <- masked_science$opportunities[
+  masked_science$opportunities$siteID == "SYCA", , drop = FALSE
+]
+masked_syca$site_summary <- masked_science$site_summary[
+  masked_science$site_summary$siteID == "SYCA", , drop = FALSE
+]
+masked_index <- inv_producer_site_index(list(SYCA = masked_syca))
+expect_true(
+  identical(masked_syca$site_summary$n_processed_no_taxonomy, 1L) &&
+    sum(masked_syca$opportunities$record_status ==
+          "processed_no_taxonomy") == 0L &&
+    identical(masked_index$n_processed_no_taxonomy, 1L),
+  paste(
+    "producer site index derives processed-without-taxonomy from the exclusive",
+    "processing outcome even when primary status is unstratifiable"
+  )
+)
+
 search <- readRDS(file.path(out_a, "data", "search_index.rds"))
 expect_true(!any(grepl("density|chao|raref|health", names(search$taxa),
                        ignore.case = TRUE)),
@@ -212,8 +355,15 @@ zero_without_area_source <- source_fixture
 syca_collection <- zero_without_area_source$inv_fieldData$siteID == "SYCA" &
   !grepl("[.]DNA$", zero_without_area_source$inv_fieldData$sampleID)
 zero_without_area_source$inv_fieldData$benthicArea[syca_collection] <- NA_real_
-zero_without_area_source$inv_taxonomyProcessed$estimatedTotalCount <- 0
-zero_without_area_source$inv_taxonomyProcessed$individualCount <- 0
+non_dna_taxonomy <- !grepl(
+  "[.]DNA$", zero_without_area_source$inv_taxonomyProcessed$sampleID
+)
+zero_without_area_source$inv_taxonomyProcessed$estimatedTotalCount[
+  non_dna_taxonomy
+] <- 0
+zero_without_area_source$inv_taxonomyProcessed$individualCount[
+  non_dna_taxonomy
+] <- 0
 zero_without_area_artifact <- file.path(source_dir, "zero-without-area.rds")
 zero_without_area_receipt <- file.path(
   source_dir, "zero-without-area-receipt.json"
@@ -231,7 +381,7 @@ inv_produce_verified_release(
 )
 inv_verify_release_against_source(
   zero_without_area_root, zero_without_area_artifact,
-  zero_without_area_receipt
+  zero_without_area_receipt, production_exact = FALSE
 )
 zero_index <- readRDS(file.path(
   zero_without_area_root, "data", "site_index.rds"

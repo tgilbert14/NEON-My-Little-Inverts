@@ -25,8 +25,8 @@ inv_true <- function(x) {
   out
 }
 
-INV_BUNDLE_SCHEMA_VERSION <- "2.0.0"
-INV_PRODUCER_SCHEMA_VERSION <- "2.0.0"
+INV_BUNDLE_SCHEMA_VERSION <- "2.1.0"
+INV_PRODUCER_SCHEMA_VERSION <- "2.1.0"
 INV_RELEASE_CONTRACT_SCHEMA_VERSION <- "1.0.0"
 INV_QC_AUDIT_SCHEMA_VERSION <- "1.0.0"
 INV_EXPECTED_DPID <- "DP1.20120.001"
@@ -50,7 +50,7 @@ INV_SOURCE_QUALITY_COLUMNS <- list(
     "qcSortedBy", "qcEnumerationDifference", "qcTaxonomicDifference"
   ),
   taxonomy_processed = c(
-    "siteID", "sampleID", "sampleCode", "acceptedTaxonID",
+    "siteID", "uid", "sampleID", "sampleCode", "acceptedTaxonID",
     "scientificName", "taxonRank", "qcChecked", "dataQF"
   )
 )
@@ -73,6 +73,9 @@ INV_RECONCILIATION_SCALARS <- c(
   "opportunity_rows", "status_rows", "primary_opportunities",
   "count_eligible_samples", "composition_eligible_samples",
   "density_eligible_samples", "reported_zero_count", "unstratifiable",
+  "processing_unknown", "taxonomy_count_unavailable",
+  "displayed_zero_percent_authoritative_estimate",
+  "practical_processing_count_opportunities",
   "taxonomy_rows_collapsed", "opportunity_complete", "count_contains_density",
   "qc_alters_metric_eligibility"
 )
@@ -86,15 +89,29 @@ INV_SEARCH_TAXON_COLUMNS <- c(
 
 INV_RECORD_STATUS_LEVELS <- c(
   "sampling_impractical", "unstratifiable", "nonstandard_collection",
-  "processed_no_taxonomy", "count_unavailable", "area_unavailable",
+  "processing_unknown", "processed_no_taxonomy", "count_unavailable", "area_unavailable",
   "density_unavailable", "reported_zero_count", "quantified_community"
 )
+# The first applicable state wins. Keep this projection independent from the
+# producer so the loaded app can reject coordinated status-ledger tampering.
+INV_RECORD_STATUS_PRECEDENCE <- c(
+  "unstratifiable", "sampling_impractical", "nonstandard_collection",
+  "processing_unknown", "processed_no_taxonomy", "count_unavailable",
+  "area_unavailable", "density_unavailable", "reported_zero_count",
+  "quantified_community"
+)
+INV_PROCESSING_COUNT_STATUS_LEVELS <- c(
+  "processing_unknown", "processed_no_taxonomy",
+  "taxonomy_count_unavailable", "taxonomy_count_available"
+)
+INV_NONSTANDARD_SAMPLER_RELEASE_2026 <- "grab"
 
 INV_STATUS_META <- data.frame(
   record_status = INV_RECORD_STATUS_LEVELS,
   label = c(
     "Sampling impractical", "Stratum fields unavailable",
-    "Nonstandard collection", "Processed; taxonomy unavailable",
+    "Nonstandard collection", "Processing outcome unknown",
+    "Processed; taxonomy unavailable",
     "Count unavailable", "Area unavailable", "Density unavailable",
     "Reported zero (primary status)", "Quantified community"
   ),
@@ -102,6 +119,7 @@ INV_STATUS_META <- data.frame(
     "A field opportunity was recorded, but collection was impractical.",
     "A field row is retained, but one or more exact-grain fields are missing.",
     "A GRAB, BRYOZOAN, or MACROALGAE special-ID record is retained for audit and excluded from primary quantitative strata.",
+    "A practical field opportunity has neither a processing record nor taxonomy; this is an unknown processing outcome, not an observed absence.",
     "A practical processed sample has no taxonomy rows; this is unknown, not an observed absence.",
     "Taxonomy exists, but expanded counts cannot be used under the count contract.",
     "Counts can be summarized, but sampled benthic area is unavailable.",
@@ -109,8 +127,8 @@ INV_STATUS_META <- data.frame(
     "Primary status for a usable expanded zero when no higher-priority processing state applies; the separate reported-zero support flag counts every usable zero.",
     "The processed sample has usable expanded counts and benthic area."
   ),
-  count_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
-  density_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE),
+  count_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
+  density_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE),
   stringsAsFactors = FALSE
 )
 
@@ -125,7 +143,9 @@ INV_OPPORTUNITY_COLUMNS <- c(
   "namedLocation", "sampleNumber", "samplingImpractical", "stratum_key",
   "has_per_sample", "sampling_practical", "sampler_type_normalized",
   "nonstandard_id_hint", "grain_complete", "unstratifiable", "nonstandard_collection",
-  "primary_stratum", "taxonomy_rows", "record_status", "count_issue",
+  "primary_stratum", "processing_unknown", "taxonomy_count_unavailable",
+  "displayed_zero_percent_authoritative_estimate",
+  "processing_count_status", "taxonomy_rows", "record_status", "count_issue",
   "density_issue", "benthicArea_m2", "total_estimated_count",
   "count_eligible", "density_eligible", "reported_zero_count",
   "sample_density_m2", "taxa_observed", "ept_taxa_observed", "hill_q1",
@@ -136,7 +156,9 @@ INV_OPPORTUNITY_COLUMNS <- c(
 INV_EVENT_COLUMNS <- c(
   "stratum_key", "siteID", "eventID", "aquaticSiteType", "habitatType",
   "samplerType", "collectDate_min", "collectDate_max", "n_opportunities",
-  "n_sampling_impractical", "n_processed_no_taxonomy", "n_count_unavailable",
+  "n_sampling_impractical", "n_processing_unknown", "n_processed_no_taxonomy",
+  "n_taxonomy_count_unavailable",
+  "n_displayed_zero_percent_authoritative_estimate", "n_count_unavailable",
   "n_area_unavailable", "n_density_unavailable", "n_count_samples",
   "n_composition_samples", "n_density_samples", "n_reported_zero_count",
   "mean_sample_density_m2", "median_sample_density_m2",
@@ -162,7 +184,9 @@ INV_SITE_INDEX_COLUMNS <- c(
   "collectDate_min", "collectDate_max", "n_events", "n_strata",
   "n_opportunities", "n_primary_opportunities", "n_count_samples",
   "n_composition_samples", "n_density_samples", "n_reported_zero_count",
-  "n_unstratifiable", "n_taxa_recorded", "n_sampling_impractical",
+  "n_unstratifiable", "n_processing_unknown", "n_taxonomy_count_unavailable",
+  "n_displayed_zero_percent_authoritative_estimate",
+  "n_taxa_recorded", "n_sampling_impractical",
   "n_nonstandard_collection", "n_processed_no_taxonomy",
   "n_count_unavailable", "n_area_unavailable", "n_density_unavailable",
   "taxonomic_ranks", "source_stamp", "science_version"
@@ -174,7 +198,9 @@ INV_META_FIELDS <- c(
   "aquatic_site_types", "lat", "lng", "elevation", "named_location_count",
   "n_events", "n_strata", "n_opportunities", "n_primary_opportunities",
   "n_count_samples", "n_composition_samples", "n_density_samples",
-  "n_reported_zero_count", "n_unstratifiable", "n_taxa_recorded",
+  "n_reported_zero_count", "n_unstratifiable", "n_processing_unknown",
+  "n_taxonomy_count_unavailable",
+  "n_displayed_zero_percent_authoritative_estimate", "n_taxa_recorded",
   "taxonomic_ranks", "comparison_boundary"
 )
 
@@ -413,7 +439,10 @@ inv_validate_qc <- function(qc, opportunities, expected_site) {
   if (!is.list(reconciliation)) {
     return(inv_contract_result(FALSE, "qc reconciliation is not a list"))
   }
-  missing <- setdiff(c(INV_RECONCILIATION_SCALARS, "source_qc_rows_retained"),
+  missing <- setdiff(c(
+    INV_RECONCILIATION_SCALARS, "processing_count_status_counts",
+    "source_qc_rows_retained"
+  ),
                      names(reconciliation))
   if (length(missing)) {
     return(inv_contract_result(
@@ -446,6 +475,16 @@ inv_validate_qc <- function(qc, opportunities, expected_site) {
     density_eligible_samples = sum(inv_true(opportunities$density_eligible)),
     reported_zero_count = sum(inv_true(opportunities$reported_zero_count)),
     unstratifiable = sum(inv_true(opportunities$unstratifiable)),
+    processing_unknown = sum(inv_true(opportunities$processing_unknown)),
+    taxonomy_count_unavailable = sum(
+      inv_true(opportunities$taxonomy_count_unavailable)
+    ),
+    displayed_zero_percent_authoritative_estimate = sum(
+      inv_true(opportunities$displayed_zero_percent_authoritative_estimate)
+    ),
+    practical_processing_count_opportunities = sum(
+      inv_true(opportunities$sampling_practical)
+    ),
     taxonomy_rows_collapsed = sum(num(opportunities$taxonomy_rows))
   )
   reconciliation_matches <- all(vapply(
@@ -454,6 +493,22 @@ inv_validate_qc <- function(qc, opportunities, expected_site) {
                 num(expected_reconciliation[[name]]))
     }, logical(1)
   ))
+  expected_processing_count_status <- table(factor(
+    as.character(opportunities$processing_count_status[
+      inv_true(opportunities$sampling_practical)
+    ]), levels = INV_PROCESSING_COUNT_STATUS_LEVELS
+  ))
+  processing_count_status_matches <-
+    identical(
+      as.character(names(reconciliation$processing_count_status_counts)),
+      as.character(names(expected_processing_count_status))
+    ) &&
+    identical(
+      num(reconciliation$processing_count_status_counts),
+      num(expected_processing_count_status)
+    ) &&
+    sum(num(expected_processing_count_status)) ==
+      sum(inv_true(opportunities$sampling_practical))
   source_rows_match <-
     identical(num(qc$source_rows$collection_field_rows),
               as.numeric(nrow(opportunities))) &&
@@ -479,7 +534,8 @@ inv_validate_qc <- function(qc, opportunities, expected_site) {
                  as.numeric(nrow(opportunities))) ||
       !isTRUE(reconciliation$opportunity_complete) ||
       !isTRUE(reconciliation$count_contains_density) ||
-      !reconciliation_matches || !source_rows_match ||
+      !reconciliation_matches || !processing_count_status_matches ||
+      !source_rows_match ||
       !identical(reconciliation$qc_alters_metric_eligibility, FALSE)) {
     return(inv_contract_result(FALSE, "qc reconciliation differs from bundle rows"))
   }
@@ -506,7 +562,9 @@ inv_validate_bundle <- function(bundle, expected_site = NULL,
     ))
   }
   if (!identical(as.character(bundle$schema_version), INV_BUNDLE_SCHEMA_VERSION)) {
-    return(inv_contract_result(FALSE, "bundle schema_version is not 2.0.0"))
+    return(inv_contract_result(FALSE, sprintf(
+      "bundle schema_version is not %s", INV_BUNDLE_SCHEMA_VERSION
+    )))
   }
 
   checks <- list(
@@ -518,7 +576,10 @@ inv_validate_bundle <- function(bundle, expected_site = NULL,
                         c("siteID", "collectDate_min", "collectDate_max",
                           "n_events", "n_strata", "n_opportunities",
                           "n_sampling_impractical", "n_nonstandard_collection",
-                          "n_unstratifiable", "n_processed_no_taxonomy",
+                          "n_unstratifiable", "n_processing_unknown",
+                          "n_processed_no_taxonomy",
+                          "n_taxonomy_count_unavailable",
+                          "n_displayed_zero_percent_authoritative_estimate",
                           "n_count_samples", "n_density_samples",
                           "n_taxa_recorded", "taxonomic_ranks"),
                         "site_summary"),
@@ -572,9 +633,11 @@ inv_validate_bundle <- function(bundle, expected_site = NULL,
   }
   summary_row <- bundle$site_summary[1L, , drop = FALSE]
   boolean_fields <- c(
-    "sampling_practical", "primary_stratum", "unstratifiable",
+    "has_per_sample", "sampling_practical", "primary_stratum", "unstratifiable",
     "nonstandard_collection", "count_eligible", "density_eligible",
-    "reported_zero_count"
+    "reported_zero_count", "processing_unknown",
+    "taxonomy_count_unavailable",
+    "displayed_zero_percent_authoritative_estimate"
   )
   valid_booleans <- vapply(boolean_fields, function(field) {
     values <- bundle$opportunities[[field]]
@@ -587,16 +650,214 @@ inv_validate_bundle <- function(bundle, expected_site = NULL,
                      boolean_fields[which(!valid_booleans)[[1L]]])
     ))
   }
+
+  opportunities <- bundle$opportunities
+  source_missing <- function(value) {
+    normalized <- trimws(as.character(value))
+    is.na(value) | !nzchar(normalized) | normalized == "(not recorded)"
+  }
+  primitive_num <- function(value) {
+    if (is.numeric(value)) return(as.numeric(value))
+    suppressWarnings(as.numeric(as.character(value)))
+  }
+  practical_flag <- trimws(as.character(opportunities$samplingImpractical))
+  expected_practical <- is.na(opportunities$samplingImpractical) |
+    !nzchar(practical_flag) | toupper(practical_flag) == "OK"
+  grain_fields <- c(
+    "siteID", "eventID", "aquaticSiteType", "habitatType", "samplerType"
+  )
+  expected_grain_complete <- Reduce(
+    `&`, lapply(opportunities[grain_fields], function(value) {
+      !source_missing(value)
+    })
+  )
+  sampler_normalized <- trimws(as.character(opportunities$samplerType))
+  sampler_normalized[source_missing(opportunities$samplerType)] <- NA_character_
+  sampler_normalized <- tolower(gsub(
+    "[[:space:]_-]+", "", sampler_normalized
+  ))
+  expected_unstratifiable <- !expected_grain_complete
+  expected_nonstandard <- !is.na(sampler_normalized) &
+    sampler_normalized == INV_NONSTANDARD_SAMPLER_RELEASE_2026
+  expected_primary <- !expected_unstratifiable & !expected_nonstandard
+  structure_checks <- list(
+    sampling_practical = expected_practical,
+    grain_complete = expected_grain_complete,
+    unstratifiable = expected_unstratifiable,
+    nonstandard_collection = expected_nonstandard,
+    primary_stratum = expected_primary
+  )
+  bad_structure <- names(structure_checks)[!vapply(
+    names(structure_checks), function(field) {
+      identical(opportunities[[field]], structure_checks[[field]])
+    }, logical(1)
+  )]
+  if (length(bad_structure)) {
+    return(inv_contract_result(
+      FALSE, sprintf(
+        "opportunity %s differs from primitive field evidence",
+        bad_structure[[1L]]
+      )
+    ))
+  }
+  if (!identical(as.character(opportunities$sampler_type_normalized),
+                 sampler_normalized)) {
+    return(inv_contract_result(
+      FALSE, "opportunity sampler normalization differs from samplerType"
+    ))
+  }
+
+  taxonomy_rows <- primitive_num(opportunities$taxonomy_rows)
+  if (any(!is.finite(taxonomy_rows) | taxonomy_rows < 0 |
+          taxonomy_rows != floor(taxonomy_rows))) {
+    return(inv_contract_result(
+      FALSE, "opportunity taxonomy_rows is not a nonnegative integer ledger"
+    ))
+  }
+  has_per_sample <- opportunities$has_per_sample
+  count_issue <- inv_chr(opportunities$count_issue)
+  expected_processing_unknown <- expected_practical & !has_per_sample &
+    taxonomy_rows == 0
+  expected_taxonomy_count_unavailable <- expected_practical &
+    taxonomy_rows > 0 & !is.na(count_issue)
+  expected_processing_status <- rep(NA_character_, nrow(opportunities))
+  expected_processing_status[expected_processing_unknown] <-
+    "processing_unknown"
+  expected_processing_status[
+    expected_practical & has_per_sample & taxonomy_rows == 0
+  ] <- "processed_no_taxonomy"
+  expected_processing_status[expected_taxonomy_count_unavailable] <-
+    "taxonomy_count_unavailable"
+  expected_processing_status[
+    expected_practical & taxonomy_rows > 0 & is.na(count_issue)
+  ] <- "taxonomy_count_available"
+  if (!identical(opportunities$processing_unknown,
+                 expected_processing_unknown) ||
+      !identical(opportunities$taxonomy_count_unavailable,
+                 expected_taxonomy_count_unavailable) ||
+      !identical(as.character(opportunities$processing_count_status),
+                 expected_processing_status)) {
+    return(inv_contract_result(
+      FALSE,
+      paste0(
+        "opportunity processing/count outcome differs from primitive ",
+        "practicality, per-sample, taxonomy, or count-issue evidence"
+      )
+    ))
+  }
+
+  total_count <- primitive_num(opportunities$total_estimated_count)
+  benthic_area <- primitive_num(opportunities$benthicArea_m2)
+  valid_area <- is.finite(benthic_area) & benthic_area > 0
+  analysis_practical <- expected_practical & expected_primary
+  expected_count_eligible <- analysis_practical & taxonomy_rows > 0 &
+    is.na(count_issue)
+  if (any(expected_count_eligible &
+          (!is.finite(total_count) | total_count < 0))) {
+    return(inv_contract_result(
+      FALSE, "count-eligible primitive totals are missing, nonfinite, or negative"
+    ))
+  }
+  density_candidate <- expected_count_eligible & valid_area
+  candidate_density <- rep(NA_real_, nrow(opportunities))
+  candidate_density[density_candidate] <-
+    total_count[density_candidate] / benthic_area[density_candidate]
+  nonfinite_density <- density_candidate & !is.finite(candidate_density)
+  expected_density_eligible <- density_candidate & !nonfinite_density
+  expected_reported_zero <- expected_count_eligible &
+    is.finite(total_count) & total_count == 0
+  if (!identical(opportunities$count_eligible, expected_count_eligible) ||
+      !identical(opportunities$density_eligible,
+                 expected_density_eligible) ||
+      !identical(opportunities$reported_zero_count,
+                 expected_reported_zero)) {
+    return(inv_contract_result(
+      FALSE,
+      "opportunity eligibility differs from primitive grain/count/area evidence"
+    ))
+  }
+  expected_density_issue <- rep(NA_character_, nrow(opportunities))
+  expected_density_issue[nonfinite_density] <- "nonfinite_sample_density"
+  if (!identical(as.character(opportunities$density_issue),
+                 expected_density_issue)) {
+    return(inv_contract_result(
+      FALSE, "opportunity density issue differs from the primitive quotient"
+    ))
+  }
+  expected_sample_density <- candidate_density
+  expected_sample_density[!expected_density_eligible] <- NA_real_
+  observed_sample_density <- primitive_num(opportunities$sample_density_m2)
+  density_equal <- (is.na(observed_sample_density) &
+                      is.na(expected_sample_density)) |
+    (!is.na(observed_sample_density) & !is.na(expected_sample_density) &
+       observed_sample_density == expected_sample_density)
+  if (!all(density_equal)) {
+    return(inv_contract_result(
+      FALSE, "opportunity sample density differs from the primitive quotient"
+    ))
+  }
+
+  expected_status <- rep(NA_character_, nrow(opportunities))
+  expected_status[expected_unstratifiable] <- "unstratifiable"
+  expected_status[is.na(expected_status) & !expected_practical] <-
+    "sampling_impractical"
+  expected_status[is.na(expected_status) & expected_nonstandard] <-
+    "nonstandard_collection"
+  expected_status[analysis_practical & expected_processing_unknown] <-
+    "processing_unknown"
+  expected_status[
+    analysis_practical & has_per_sample & taxonomy_rows == 0
+  ] <- "processed_no_taxonomy"
+  expected_status[
+    analysis_practical & expected_taxonomy_count_unavailable
+  ] <- "count_unavailable"
+  expected_status[
+    analysis_practical & taxonomy_rows > 0 & is.na(count_issue) & !valid_area
+  ] <- "area_unavailable"
+  expected_status[nonfinite_density] <- "density_unavailable"
+  expected_status[expected_density_eligible & total_count > 0] <-
+    "quantified_community"
+  expected_status[expected_density_eligible & expected_reported_zero] <-
+    "reported_zero_count"
+  if (anyNA(expected_status) ||
+      !identical(as.character(opportunities$record_status), expected_status)) {
+    return(inv_contract_result(
+      FALSE, paste0(
+        "opportunity record_status differs from exact precedence: ",
+        paste(INV_RECORD_STATUS_PRECEDENCE, collapse = " > ")
+      )
+    ))
+  }
   status <- as.character(bundle$opportunities$record_status)
   if (any(is.na(status) | !status %in% INV_RECORD_STATUS_LEVELS)) {
     return(inv_contract_result(FALSE, "opportunity ledger has an unknown status"))
+  }
+  practical <- inv_true(bundle$opportunities$sampling_practical)
+  processing_status <- inv_chr(bundle$opportunities$processing_count_status)
+  if (any(is.na(processing_status[practical]) |
+          !processing_status[practical] %in%
+            INV_PROCESSING_COUNT_STATUS_LEVELS) ||
+      any(!is.na(processing_status[!practical]))) {
+    return(inv_contract_result(
+      FALSE,
+      "practical opportunities do not have one exclusive processing/count status"
+    ))
   }
   expected_summary_counts <- c(
     n_opportunities = nrow(bundle$opportunities),
     n_sampling_impractical = sum(!bundle$opportunities$sampling_practical),
     n_nonstandard_collection = sum(bundle$opportunities$nonstandard_collection),
     n_unstratifiable = sum(bundle$opportunities$unstratifiable),
-    n_processed_no_taxonomy = sum(status == "processed_no_taxonomy"),
+    n_processing_unknown = sum(bundle$opportunities$processing_unknown),
+    n_processed_no_taxonomy = sum(
+      processing_status %in% "processed_no_taxonomy"
+    ),
+    n_taxonomy_count_unavailable = sum(
+      bundle$opportunities$taxonomy_count_unavailable
+    ),
+    n_displayed_zero_percent_authoritative_estimate = sum(
+      bundle$opportunities$displayed_zero_percent_authoritative_estimate
+    ),
     n_count_samples = sum(bundle$opportunities$count_eligible),
     n_density_samples = sum(bundle$opportunities$density_eligible)
   )
@@ -615,6 +876,10 @@ inv_validate_bundle <- function(bundle, expected_site = NULL,
     n_count_samples = "n_count_samples",
     n_density_samples = "n_density_samples",
     n_unstratifiable = "n_unstratifiable",
+    n_processing_unknown = "n_processing_unknown",
+    n_taxonomy_count_unavailable = "n_taxonomy_count_unavailable",
+    n_displayed_zero_percent_authoritative_estimate =
+      "n_displayed_zero_percent_authoritative_estimate",
     n_taxa_recorded = "n_taxa_recorded"
   )
   for (meta_name in names(summary_map)) {
@@ -750,7 +1015,10 @@ inv_validate_site_index <- function(index, release_contract = NULL) {
     "n_count_samples", "n_composition_samples", "n_density_samples",
     "n_reported_zero_count", "n_unstratifiable", "n_taxa_recorded",
     "n_sampling_impractical", "n_nonstandard_collection",
-    "n_processed_no_taxonomy", "n_count_unavailable", "n_area_unavailable",
+    "n_processing_unknown", "n_processed_no_taxonomy",
+    "n_taxonomy_count_unavailable",
+    "n_displayed_zero_percent_authoritative_estimate",
+    "n_count_unavailable", "n_area_unavailable",
     "n_density_unavailable"
   )
   count_values <- as.matrix(data.frame(lapply(index[count_fields], num)))
@@ -859,6 +1127,23 @@ inv_status_ledger <- function(opportunities) {
   out
 }
 
+# `processing_count_status` is the exhaustive outcome partition for practical
+# opportunities. Unlike record_status, it is not masked by comparison-grain or
+# nonstandard-collection precedence.
+inv_processing_count_counts <- function(opportunities) {
+  if (is.null(opportunities) || !nrow(opportunities)) {
+    return(stats::setNames(
+      rep(0L, length(INV_PROCESSING_COUNT_STATUS_LEVELS)),
+      INV_PROCESSING_COUNT_STATUS_LEVELS
+    ))
+  }
+  counts <- table(factor(
+    as.character(opportunities$processing_count_status),
+    levels = INV_PROCESSING_COUNT_STATUS_LEVELS
+  ))
+  stats::setNames(as.integer(counts), names(counts))
+}
+
 # These support conditions can overlap the dominant record_status. For example,
 # a usable reported zero with no benthic area has record_status =
 # "area_unavailable" and reported_zero_count = TRUE. Never use the mutually
@@ -867,7 +1152,9 @@ inv_support_counts <- function(opportunities) {
   if (is.null(opportunities) || !nrow(opportunities)) {
     return(c(
       sampling_impractical = 0L, nonstandard_collection = 0L,
-      unstratifiable = 0L, reported_zero_count = 0L
+      unstratifiable = 0L, processing_unknown = 0L,
+      taxonomy_count_unavailable = 0L, reported_zero_count = 0L,
+      displayed_zero_percent_authoritative_estimate = 0L
     ))
   }
   practical <- as.logical(opportunities$sampling_practical)
@@ -877,6 +1164,17 @@ inv_support_counts <- function(opportunities) {
       as.logical(opportunities$nonstandard_collection) %in% TRUE
     ),
     unstratifiable = sum(as.logical(opportunities$unstratifiable) %in% TRUE),
+    processing_unknown = sum(
+      as.logical(opportunities$processing_unknown) %in% TRUE
+    ),
+    taxonomy_count_unavailable = sum(
+      as.logical(opportunities$taxonomy_count_unavailable) %in% TRUE
+    ),
+    displayed_zero_percent_authoritative_estimate = sum(
+      as.logical(
+        opportunities$displayed_zero_percent_authoritative_estimate
+      ) %in% TRUE
+    ),
     reported_zero_count = sum(
       as.logical(opportunities$reported_zero_count) %in% TRUE
     )
@@ -925,7 +1223,11 @@ inv_opportunity_export <- function(opportunities) {
     c("opportunity_id", "sampleID", "sampleCode", "siteID", "eventID",
       "collectDate", "aquaticSiteType", "habitatType", "samplerType",
       "namedLocation", "samplingImpractical", "record_status",
-      "primary_stratum", "taxonomy_rows", "count_issue", "density_issue",
+      "primary_stratum", "processing_unknown",
+      "taxonomy_count_unavailable",
+      "displayed_zero_percent_authoritative_estimate",
+      "processing_count_status", "taxonomy_rows", "count_issue",
+      "density_issue",
       "benthicArea_m2", "total_estimated_count", "count_eligible",
       "density_eligible", "reported_zero_count", "sample_density_m2",
       "taxa_observed", "ept_taxa_observed",
@@ -993,6 +1295,18 @@ inv_safe_filename <- function(site, suffix, extension = "csv") {
          suffix, ".", extension)
 }
 
+INV_NETWORK_EXPORT_COLUMNS <- c(
+  "site", "name", "aquaticSiteType", "collectDate_min", "collectDate_max",
+  "n_opportunities", "n_primary_opportunities", "n_events", "n_strata",
+  "n_count_samples", "n_composition_samples", "n_density_samples",
+  "n_reported_zero_count", "n_unstratifiable", "n_processing_unknown",
+  "n_processed_no_taxonomy", "n_taxonomy_count_unavailable",
+  "n_displayed_zero_percent_authoritative_estimate", "n_taxa_recorded",
+  "n_sampling_impractical", "n_nonstandard_collection",
+  "n_count_unavailable", "n_area_unavailable", "n_density_unavailable",
+  "taxonomic_ranks", "source_stamp"
+)
+
 inv_comparison_choices <- c(
   n_opportunities = "Field opportunities",
   n_primary_opportunities = "Primary-stratum opportunities",
@@ -1005,7 +1319,12 @@ inv_comparison_choices <- c(
   n_unstratifiable = "Opportunities with unavailable stratum fields",
   n_taxa_recorded = "Distinct mixed-rank taxa recorded",
   n_sampling_impractical = "Sampling-impractical opportunities",
-  n_processed_no_taxonomy = "Processed samples with taxonomy unavailable"
+  n_processing_unknown = "Field opportunities with unknown processing outcome",
+  n_processed_no_taxonomy =
+    "Per-sample processing records with no taxonomy outcome",
+  n_taxonomy_count_unavailable = "Taxonomy outcomes with count unavailable",
+  n_displayed_zero_percent_authoritative_estimate =
+    "Published estimates linked to integer-displayed 0% subsamples"
 )
 
 inv_comparison_label <- function(key) {

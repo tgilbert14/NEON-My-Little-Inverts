@@ -8,7 +8,7 @@
 # grain. Missing processed-taxonomy children are retained as an explicit
 # unknown state and are not silently converted to zero.
 
-INV_SCIENCE_VERSION <- "2.0.0"
+INV_SCIENCE_VERSION <- "2.1.0"
 INV_EPT_ORDERS <- c("Ephemeroptera", "Plecoptera", "Trichoptera")
 INV_STANDARD_SAMPLERS_RELEASE_2026 <- c(
   "surber", "core", "benthicsweep", "petiteponar", "modifiedkicknet",
@@ -23,13 +23,19 @@ INV_REVIEWED_SAMPLERS_RELEASE_2026 <- c(
 # opportunity has several audit flags. The first applicable state wins.
 INV_RECORD_STATUS_PRECEDENCE <- c(
   "unstratifiable", "sampling_impractical", "nonstandard_collection",
-  "processed_no_taxonomy", "count_unavailable", "area_unavailable",
-  "density_unavailable", "reported_zero_count", "quantified_community"
+  "processing_unknown", "processed_no_taxonomy", "count_unavailable",
+  "area_unavailable", "density_unavailable", "reported_zero_count",
+  "quantified_community"
 )
 INV_RECORD_STATUS_LEVELS <- c(
   "sampling_impractical", "unstratifiable", "nonstandard_collection",
-  "processed_no_taxonomy", "count_unavailable", "area_unavailable",
-  "density_unavailable", "reported_zero_count", "quantified_community"
+  "processing_unknown", "processed_no_taxonomy", "count_unavailable",
+  "area_unavailable", "density_unavailable", "reported_zero_count",
+  "quantified_community"
+)
+INV_PROCESSING_COUNT_STATUS_LEVELS <- c(
+  "processing_unknown", "processed_no_taxonomy",
+  "taxonomy_count_unavailable", "taxonomy_count_available"
 )
 
 inv_science_fail <- function(...) stop(sprintf(...), call. = FALSE)
@@ -79,7 +85,10 @@ inv_science_require <- function(x, table_name, columns) {
 }
 
 inv_science_pair_key <- function(sample_id, sample_code) {
-  paste(inv_science_chr(sample_id), inv_science_chr(sample_code), sep = "\u241f")
+  # sampleCode is optional provenance in RELEASE-2026 (1,602 practical field
+  # rows omit it). sampleID is complete and unique across practical collection
+  # opportunities, so it is the fail-closed analysis join identity.
+  inv_science_chr(sample_id)
 }
 
 inv_science_stratum_key <- function(site_id, event_id, water_type,
@@ -155,7 +164,7 @@ inv_science_count_value <- function(estimated, individual, subsample_percent) {
     "nonfinite_individual_count"
   issue[is.infinite(subsample_percent) | is.nan(subsample_percent) |
           (is.finite(subsample_percent) &
-             (subsample_percent <= 0 | subsample_percent > 100))] <-
+             (subsample_percent < 0 | subsample_percent > 100))] <-
     "invalid_subsample_percent"
   issue[is.finite(estimated) & estimated < 0] <- "negative_estimated_count"
   issue[is.finite(individual) & individual < 0] <- "negative_individual_count"
@@ -166,21 +175,45 @@ inv_science_count_value <- function(estimated, individual, subsample_percent) {
   missing <- !is.finite(value) & is.na(issue)
   issue[missing] <- "estimated_count_unavailable"
   value[!is.na(issue)] <- NA_real_
-  data.frame(count_used = value, count_issue = issue,
+  displayed_zero_authoritative <- is.finite(subsample_percent) &
+    subsample_percent == 0 & is.na(issue)
+  data.frame(
+    count_used = value, count_issue = issue,
+    displayed_zero_percent_authoritative_estimate =
+      displayed_zero_authoritative,
              stringsAsFactors = FALSE)
 }
 
-inv_science_taxon_key <- function(accepted_id, scientific_name, taxon_rank) {
+inv_science_taxon_key <- function(accepted_id, scientific_name, taxon_rank,
+                                  uid, individual_count,
+                                  estimated_total_count) {
   accepted <- trimws(as.character(accepted_id))
   unresolved <- inv_science_blank(accepted)
   inv_science_assert(
-    !any(unresolved),
+    !any(unresolved &
+           (!is.na(inv_science_num(individual_count)) |
+              !is.na(inv_science_num(estimated_total_count)))),
     paste0(
-      "inv_taxonomyProcessed has blank acceptedTaxonID at row %d; ",
-      "unresolved taxa require a reviewed morphospecies/distinct identity ",
-      "before metric construction"
+      "Unresolved taxonomy placeholder has a reported individual or ",
+      "estimated count at row %d"
     ),
-    if (any(unresolved)) which(unresolved)[[1]] else 0L
+    if (any(unresolved &
+              (!is.na(inv_science_num(individual_count)) |
+                 !is.na(inv_science_num(estimated_total_count))))) {
+      which(unresolved &
+              (!is.na(inv_science_num(individual_count)) |
+                 !is.na(inv_science_num(estimated_total_count))))[[1]]
+    } else 0L
+  )
+  inv_science_assert(
+    !any(unresolved & inv_science_blank(uid)),
+    "Unresolved taxonomy placeholder lacks source UID at row %d",
+    if (any(unresolved & inv_science_blank(uid))) {
+      which(unresolved & inv_science_blank(uid))[[1]]
+    } else 0L
+  )
+  accepted[unresolved] <- paste0(
+    "unresolved-source-record:", as.character(uid[unresolved])
   )
   accepted
 }
@@ -278,7 +311,10 @@ inv_science_empty_opportunities <- function() {
     sampling_practical = logical(), sampler_type_normalized = character(),
     nonstandard_id_hint = logical(), grain_complete = logical(),
     unstratifiable = logical(), nonstandard_collection = logical(),
-    primary_stratum = logical(), taxonomy_rows = integer(),
+    primary_stratum = logical(), processing_unknown = logical(),
+    taxonomy_count_unavailable = logical(),
+    displayed_zero_percent_authoritative_estimate = logical(),
+    processing_count_status = character(), taxonomy_rows = integer(),
     record_status = character(), count_issue = character(),
     density_issue = character(), benthicArea_m2 = numeric(),
     total_estimated_count = numeric(), count_eligible = logical(),
@@ -297,7 +333,10 @@ inv_science_empty_site_summary <- function() {
     collectDate_max = character(), n_events = integer(),
     n_strata = integer(), n_opportunities = integer(),
     n_sampling_impractical = integer(), n_nonstandard_collection = integer(),
-    n_unstratifiable = integer(), n_processed_no_taxonomy = integer(),
+    n_unstratifiable = integer(), n_processing_unknown = integer(),
+    n_processed_no_taxonomy = integer(),
+    n_taxonomy_count_unavailable = integer(),
+    n_displayed_zero_percent_authoritative_estimate = integer(),
     n_count_samples = integer(), n_density_samples = integer(),
     n_taxa_recorded = integer(), taxonomic_ranks = character(),
     stringsAsFactors = FALSE
@@ -312,7 +351,9 @@ inv_science_collapse_taxonomy <- function(taxonomy) {
       scientificName = character(), taxonRank = character(), order = character(),
       family = character(), class = character(), subclass = character(),
       estimated_count = numeric(), count_valid = logical(),
-      count_issue = character(), order_classified = logical(),
+      count_issue = character(),
+      displayed_zero_percent_authoritative_estimate = logical(),
+      order_classified = logical(),
       is_ept = logical(), stringsAsFactors = FALSE
     ))
   }
@@ -321,54 +362,91 @@ inv_science_collapse_taxonomy <- function(taxonomy) {
     taxonomy$estimatedTotalCount, taxonomy$individualCount,
     taxonomy$subsamplePercent
   )
-  taxonomy$sample_key <- inv_science_pair_key(taxonomy$sampleID,
-                                               taxonomy$sampleCode)
-  taxonomy$taxon_key <- inv_science_taxon_key(
-    taxonomy$acceptedTaxonID, taxonomy$scientificName, taxonomy$taxonRank
+  # Keep derived keys outside the 320k-row source frame. Appending several
+  # columns and then splitting that wide frame once per sample/taxon group
+  # creates a large transient allocation on constrained Actions runners.
+  sample_key <- inv_science_pair_key(taxonomy$sampleID, taxonomy$sampleCode)
+  taxon_key <- inv_science_taxon_key(
+    taxonomy$acceptedTaxonID, taxonomy$scientificName, taxonomy$taxonRank,
+    taxonomy$uid, taxonomy$individualCount, taxonomy$estimatedTotalCount
   )
-  taxonomy$count_used <- counts$count_used
-  taxonomy$count_issue <- counts$count_issue
+  group_key <- paste(sample_key, taxon_key, sep = "\u241d")
+  unique_group_key <- unique(group_key)
+  group_id <- match(group_key, unique_group_key)
+  n_groups <- length(unique_group_key)
+  first_index <- match(seq_len(n_groups), group_id)
 
-  groups <- split(seq_len(nrow(taxonomy)),
-                  paste(taxonomy$sample_key, taxonomy$taxon_key, sep = "\u241d"),
-                  drop = TRUE)
-  rows <- lapply(groups, function(index) {
-    part <- taxonomy[index, , drop = FALSE]
-    issues <- unique(part$count_issue[!is.na(part$count_issue)])
-    valid <- !length(issues)
-    collapsed_count <- if (valid) sum(part$count_used) else NA_real_
-    if (valid && !is.finite(collapsed_count)) {
-      valid <- FALSE
-      collapsed_count <- NA_real_
-      issues <- c(issues, "nonfinite_collapsed_count")
-    }
-    data.frame(
-      sample_key = part$sample_key[[1]],
-      sampleID = inv_science_strict_value(part$sampleID, "sampleID"),
-      sampleCode = inv_science_strict_value(part$sampleCode, "sampleCode"),
-      taxon_key = part$taxon_key[[1]],
-      acceptedTaxonID = inv_science_strict_value(part$acceptedTaxonID,
-                                                  "acceptedTaxonID"),
-      scientificName = inv_science_strict_value(part$scientificName,
-                                                 "scientificName"),
-      taxonRank = inv_science_strict_value(part$taxonRank, "taxonRank"),
-      order = inv_science_strict_value(part$order, "order"),
-      family = inv_science_strict_value(part$family, "family"),
-      class = inv_science_strict_value(part$class, "class"),
-      subclass = inv_science_strict_value(part$subclass, "subclass"),
-      estimated_count = collapsed_count,
-      count_valid = valid,
-      count_issue = if (valid) NA_character_ else
-        paste(sort(unique(issues)), collapse = ";"),
-      order_classified = !is.na(inv_science_strict_value(part$order, "order")),
-      is_ept = identical(inv_science_is_ept_order(
-        inv_science_strict_value(part$order, "order")
-      ), TRUE),
-      stringsAsFactors = FALSE
+  strict_group_values <- function(values, label) {
+    normalized <- trimws(as.character(values))
+    nonblank <- !is.na(normalized) & nzchar(normalized)
+    result <- rep(NA_character_, n_groups)
+    if (!any(nonblank)) return(result)
+
+    present_group <- group_id[nonblank]
+    present_value <- normalized[nonblank]
+    first <- !duplicated(present_group)
+    result[present_group[first]] <- present_value[first]
+    conflict <- present_value != result[present_group]
+    inv_science_assert(
+      !any(conflict), "Conflicting %s values within one sample/taxon: %s",
+      label,
+      if (any(conflict)) {
+        paste(unique(present_value[conflict]), collapse = ", ")
+      } else ""
     )
-  })
-  out <- do.call(rbind, rows)
-  rownames(out) <- NULL
+    result
+  }
+
+  count_input <- counts$count_used
+  count_input[!is.finite(count_input)] <- 0
+  collapsed_count <- as.numeric(rowsum(
+    count_input, group = group_id, reorder = TRUE
+  ))
+  invalid_row <- !is.na(counts$count_issue)
+  invalid_groups <- unique(group_id[invalid_row])
+  count_valid <- !seq_len(n_groups) %in% invalid_groups
+  count_issue <- rep(NA_character_, n_groups)
+  if (any(invalid_row)) {
+    issue_groups <- split(counts$count_issue[invalid_row], group_id[invalid_row])
+    issue_id <- as.integer(names(issue_groups))
+    count_issue[issue_id] <- vapply(
+      issue_groups,
+      function(issue) paste(sort(unique(issue)), collapse = ";"),
+      character(1)
+    )
+  }
+  overflow <- count_valid & !is.finite(collapsed_count)
+  count_valid[overflow] <- FALSE
+  count_issue[overflow] <- "nonfinite_collapsed_count"
+  collapsed_count[!count_valid] <- NA_real_
+
+  out <- data.frame(
+    sample_key = sample_key[first_index],
+    sampleID = strict_group_values(taxonomy$sampleID, "sampleID"),
+    sampleCode = strict_group_values(taxonomy$sampleCode, "sampleCode"),
+    taxon_key = taxon_key[first_index],
+    acceptedTaxonID = strict_group_values(
+      taxonomy$acceptedTaxonID, "acceptedTaxonID"
+    ),
+    scientificName = strict_group_values(
+      taxonomy$scientificName, "scientificName"
+    ),
+    taxonRank = strict_group_values(taxonomy$taxonRank, "taxonRank"),
+    order = strict_group_values(taxonomy$order, "order"),
+    family = strict_group_values(taxonomy$family, "family"),
+    class = strict_group_values(taxonomy$class, "class"),
+    subclass = strict_group_values(taxonomy$subclass, "subclass"),
+    estimated_count = collapsed_count, count_valid = count_valid,
+    count_issue = count_issue,
+    displayed_zero_percent_authoritative_estimate = as.numeric(rowsum(
+      as.integer(counts$displayed_zero_percent_authoritative_estimate),
+      group = group_id, reorder = TRUE
+    )) > 0,
+    order_classified = logical(n_groups), is_ept = logical(n_groups),
+    stringsAsFactors = FALSE
+  )
+  out$order_classified <- !is.na(out$order)
+  out$is_ept <- inv_science_is_ept_order(out$order)
   inv_science_assert_taxon_metadata(out)
   out <- out[order(out$sample_key, out$taxon_key), , drop = FALSE]
   rownames(out) <- NULL
@@ -377,8 +455,7 @@ inv_science_collapse_taxonomy <- function(taxonomy) {
 
 inv_science_opportunity_id <- function(field) {
   sample_key <- inv_science_pair_key(field$sampleID, field$sampleCode)
-  has_sample <- !inv_science_blank(field$sampleID) &
-    !inv_science_blank(field$sampleCode)
+  has_sample <- !inv_science_blank(field$sampleID)
   field_key <- apply(
     data.frame(
       namedLocation = inv_science_chr(field$namedLocation),
@@ -439,7 +516,10 @@ inv_science_event_strata <- function(opportunities) {
       aquaticSiteType = character(), habitatType = character(),
       samplerType = character(), collectDate_min = character(),
       collectDate_max = character(), n_opportunities = integer(),
-      n_sampling_impractical = integer(), n_processed_no_taxonomy = integer(),
+      n_sampling_impractical = integer(), n_processing_unknown = integer(),
+      n_processed_no_taxonomy = integer(),
+      n_taxonomy_count_unavailable = integer(),
+      n_displayed_zero_percent_authoritative_estimate = integer(),
       n_count_unavailable = integer(), n_area_unavailable = integer(),
       n_density_unavailable = integer(), n_count_samples = integer(),
       n_composition_samples = integer(), n_density_samples = integer(),
@@ -473,7 +553,14 @@ inv_science_event_strata <- function(opportunities) {
       collectDate_min = dates[[1]], collectDate_max = dates[[2]],
       n_opportunities = nrow(part),
       n_sampling_impractical = sum(part$record_status == "sampling_impractical"),
-      n_processed_no_taxonomy = sum(part$record_status == "processed_no_taxonomy"),
+      n_processing_unknown = sum(part$processing_unknown),
+      n_processed_no_taxonomy = sum(
+        part$processing_count_status %in% "processed_no_taxonomy"
+      ),
+      n_taxonomy_count_unavailable = sum(part$taxonomy_count_unavailable),
+      n_displayed_zero_percent_authoritative_estimate = sum(
+        part$displayed_zero_percent_authoritative_estimate
+      ),
       n_count_unavailable = sum(part$record_status == "count_unavailable"),
       n_area_unavailable = sum(part$record_status == "area_unavailable"),
       n_density_unavailable = sum(part$record_status == "density_unavailable"),
@@ -504,76 +591,155 @@ inv_science_event_strata <- function(opportunities) {
 
 inv_science_taxon_strata <- function(opportunities, collapsed) {
   count_opportunities <- opportunities[
-    opportunities$primary_stratum & opportunities$count_eligible, , drop = FALSE
+    opportunities$primary_stratum & opportunities$count_eligible,
+    c(
+      "sample_key", "stratum_key", "siteID", "eventID",
+      "aquaticSiteType", "habitatType", "samplerType", "density_eligible",
+      "benthicArea_m2"
+    ), drop = FALSE
   ]
   if (!nrow(count_opportunities) || !nrow(collapsed)) {
     return(inv_science_empty_taxon_strata())
   }
 
-  sample_lookup <- count_opportunities[c("sample_key", "stratum_key")]
-  joined <- merge(collapsed, sample_lookup, by = "sample_key", all = FALSE,
-                  sort = FALSE)
-  joined <- joined[joined$count_valid & is.finite(joined$estimated_count), , drop = FALSE]
-  canonical_metadata <- inv_science_canonical_taxon_metadata(collapsed)
-  positive_taxa <- unique(joined[joined$estimated_count > 0,
-                                 c("stratum_key", "taxon_key"), drop = FALSE])
-  if (!nrow(positive_taxa)) return(inv_science_empty_taxon_strata())
+  # Each collapsed row is already unique at sample x taxon. A narrow match
+  # avoids copying the full collapsed table through merge(), and one group-id
+  # ledger replaces repeated stratum/taxon scans and per-row data frames.
+  sample_index <- match(collapsed$sample_key, count_opportunities$sample_key)
+  keep <- !is.na(sample_index) & collapsed$count_valid &
+    is.finite(collapsed$estimated_count)
+  if (!any(keep)) return(inv_science_empty_taxon_strata())
+  sample_index <- sample_index[keep]
+  joined_sample_key <- collapsed$sample_key[keep]
+  joined_taxon_key <- collapsed$taxon_key[keep]
+  joined_count <- collapsed$estimated_count[keep]
+  joined_stratum_key <- count_opportunities$stratum_key[sample_index]
 
-  stratum_groups <- split(seq_len(nrow(count_opportunities)),
-                          count_opportunities$stratum_key, drop = TRUE)
-  rows <- list()
-  cursor <- 0L
-  for (stratum in names(stratum_groups)) {
-    samples <- count_opportunities[stratum_groups[[stratum]], , drop = FALSE]
-    density_samples <- samples[samples$density_eligible, , drop = FALSE]
-    taxa <- positive_taxa$taxon_key[positive_taxa$stratum_key == stratum]
-    if (!length(taxa)) next
-      part <- joined[joined$stratum_key == stratum, , drop = FALSE]
-    for (taxon in taxa) {
-      tax_part <- part[part$taxon_key == taxon, , drop = FALSE]
-      meta <- canonical_metadata[
-        match(taxon, canonical_metadata$taxon_key), , drop = FALSE
-      ]
-      inv_science_assert(nrow(meta) == 1L && !is.na(meta$taxon_key),
-                         "Canonical metadata is unavailable for taxon_key %s", taxon)
-      count_by_sample <- stats::setNames(rep(0, nrow(samples)), samples$sample_key)
-      observed <- tapply(tax_part$estimated_count, tax_part$sample_key, sum)
-      count_by_sample[names(observed)] <- observed
-      density <- numeric()
-      if (nrow(density_samples)) {
-        area <- stats::setNames(density_samples$benthicArea_m2,
-                                density_samples$sample_key)
-        density_counts <- count_by_sample[density_samples$sample_key]
-        density <- density_counts / area[names(density_counts)]
-      }
-      taxon_total <- sum(count_by_sample)
-      inv_science_assert(
-        is.finite(taxon_total),
-        "Nonfinite cross-sample taxon total for stratum %s and taxon_key %s",
-        stratum, taxon
-      )
-      cursor <- cursor + 1L
-      rows[[cursor]] <- data.frame(
-        stratum_key = stratum, siteID = samples$siteID[[1]],
-        eventID = samples$eventID[[1]], aquaticSiteType = samples$aquaticSiteType[[1]],
-        habitatType = samples$habitatType[[1]], samplerType = samples$samplerType[[1]],
-        taxon_key = taxon, acceptedTaxonID = meta$acceptedTaxonID,
-        scientificName = meta$scientificName, taxonRank = meta$taxonRank,
-        order = meta$order, family = meta$family, class = meta$class,
-        subclass = meta$subclass, is_ept = meta$is_ept,
-        order_classified = meta$order_classified,
-        n_count_eligible_samples = nrow(samples),
-        n_density_eligible_samples = nrow(density_samples),
-        n_samples_present = sum(count_by_sample > 0),
-        support_pct = 100 * sum(count_by_sample > 0) / nrow(samples),
-        mean_sample_density_m2 = inv_science_mean(density),
-        median_sample_density_m2 = inv_science_median(density),
-        total_estimated_count = taxon_total,
-        stringsAsFactors = FALSE
-      )
-    }
+  canonical_metadata <- inv_science_canonical_taxon_metadata(collapsed)
+
+  unique_stratum <- unique(count_opportunities$stratum_key)
+  opportunity_stratum_id <- match(
+    count_opportunities$stratum_key, unique_stratum
+  )
+  n_count_by_stratum <- tabulate(
+    opportunity_stratum_id, nbins = length(unique_stratum)
+  )
+  n_density_by_stratum <- tabulate(
+    opportunity_stratum_id[count_opportunities$density_eligible],
+    nbins = length(unique_stratum)
+  )
+
+  group_key <- paste(joined_stratum_key, joined_taxon_key, sep = "\u241d")
+  unique_group_key <- unique(group_key)
+  group_id <- match(group_key, unique_group_key)
+  n_groups <- length(unique_group_key)
+  first_index <- match(seq_len(n_groups), group_id)
+  group_stratum <- joined_stratum_key[first_index]
+  group_taxon <- joined_taxon_key[first_index]
+  group_stratum_id <- match(group_stratum, unique_stratum)
+  taxon_total <- as.numeric(rowsum(
+    joined_count, group = group_id, reorder = TRUE
+  ))
+  n_present <- as.integer(as.numeric(rowsum(
+    as.integer(joined_count > 0), group = group_id, reorder = TRUE
+  )))
+  inv_science_assert(
+    all(is.finite(taxon_total)),
+    "Nonfinite cross-sample taxon total for stratum %s and taxon_key %s",
+    if (any(!is.finite(taxon_total))) {
+      group_stratum[which(!is.finite(taxon_total))[[1L]]]
+    } else "",
+    if (any(!is.finite(taxon_total))) {
+      group_taxon[which(!is.finite(taxon_total))[[1L]]]
+    } else ""
+  )
+  positive_group <- taxon_total > 0
+  if (!any(positive_group)) return(inv_science_empty_taxon_strata())
+
+  joined_density_eligible <-
+    count_opportunities$density_eligible[sample_index]
+  joined_density <- rep(0, length(joined_count))
+  joined_density[joined_density_eligible] <-
+    joined_count[joined_density_eligible] /
+    count_opportunities$benthicArea_m2[sample_index[joined_density_eligible]]
+  positive_density <- joined_density_eligible & joined_density > 0
+  positive_density_groups <- split(
+    joined_density[positive_density], group_id[positive_density], drop = TRUE
+  )
+  density_scale <- numeric(n_groups)
+  if (length(positive_density_groups)) {
+    positive_group_id <- as.integer(names(positive_density_groups))
+    density_scale[positive_group_id] <- vapply(
+      positive_density_groups, max, numeric(1)
+    )
   }
-  out <- do.call(rbind, rows)
+  scaled_density <- numeric(length(joined_density))
+  scaled_density[positive_density] <-
+    joined_density[positive_density] / density_scale[group_id[positive_density]]
+  scaled_density_sum <- as.numeric(rowsum(
+    scaled_density, group = group_id, reorder = TRUE
+  ))
+  zero_filled_median <- function(id, denominator) {
+    if (!denominator) return(NA_real_)
+    positive <- sort(positive_density_groups[[as.character(id)]])
+    if (is.null(positive)) positive <- numeric()
+    zero_count <- denominator - length(positive)
+    ranked_value <- function(rank) {
+      if (rank <= zero_count) 0 else positive[[rank - zero_count]]
+    }
+    lower <- as.integer(floor((denominator + 1) / 2))
+    upper <- as.integer(ceiling((denominator + 1) / 2))
+    lower_value <- ranked_value(lower)
+    upper_value <- ranked_value(upper)
+    lower_value + (upper_value - lower_value) / 2
+  }
+
+  retained_id <- which(positive_group)
+  retained_stratum_id <- group_stratum_id[retained_id]
+  stratum_row <- match(group_stratum[retained_id],
+                       count_opportunities$stratum_key)
+  metadata_row <- match(group_taxon[retained_id],
+                        canonical_metadata$taxon_key)
+  inv_science_assert(
+    !anyNA(metadata_row),
+    "Canonical metadata is unavailable for a retained taxon stratum"
+  )
+  n_count <- n_count_by_stratum[retained_stratum_id]
+  n_density <- n_density_by_stratum[retained_stratum_id]
+  median_density <- vapply(seq_along(retained_id), function(index) {
+    zero_filled_median(retained_id[[index]], n_density[[index]])
+  }, numeric(1))
+  out <- data.frame(
+    stratum_key = group_stratum[retained_id],
+    siteID = count_opportunities$siteID[stratum_row],
+    eventID = count_opportunities$eventID[stratum_row],
+    aquaticSiteType = count_opportunities$aquaticSiteType[stratum_row],
+    habitatType = count_opportunities$habitatType[stratum_row],
+    samplerType = count_opportunities$samplerType[stratum_row],
+    taxon_key = group_taxon[retained_id],
+    acceptedTaxonID = canonical_metadata$acceptedTaxonID[metadata_row],
+    scientificName = canonical_metadata$scientificName[metadata_row],
+    taxonRank = canonical_metadata$taxonRank[metadata_row],
+    order = canonical_metadata$order[metadata_row],
+    family = canonical_metadata$family[metadata_row],
+    class = canonical_metadata$class[metadata_row],
+    subclass = canonical_metadata$subclass[metadata_row],
+    is_ept = canonical_metadata$is_ept[metadata_row],
+    order_classified = canonical_metadata$order_classified[metadata_row],
+    n_count_eligible_samples = as.integer(n_count),
+    n_density_eligible_samples = as.integer(n_density),
+    n_samples_present = n_present[retained_id],
+    support_pct = 100 * n_present[retained_id] / n_count,
+    mean_sample_density_m2 = ifelse(
+      n_density > 0,
+      density_scale[retained_id] *
+        (scaled_density_sum[retained_id] / n_density),
+      NA_real_
+    ),
+    median_sample_density_m2 = median_density,
+    total_estimated_count = taxon_total[retained_id],
+    stringsAsFactors = FALSE
+  )
   rownames(out) <- NULL
   out <- out[order(out$siteID, out$eventID, out$aquaticSiteType,
                    out$habitatType, out$samplerType,
@@ -610,7 +776,14 @@ inv_science_site_summary <- function(opportunities, taxon_strata) {
       n_sampling_impractical = sum(!part$sampling_practical),
       n_nonstandard_collection = sum(part$nonstandard_collection),
       n_unstratifiable = sum(part$unstratifiable),
-      n_processed_no_taxonomy = sum(part$record_status == "processed_no_taxonomy"),
+      n_processing_unknown = sum(part$processing_unknown),
+      n_processed_no_taxonomy = sum(
+        part$processing_count_status %in% "processed_no_taxonomy"
+      ),
+      n_taxonomy_count_unavailable = sum(part$taxonomy_count_unavailable),
+      n_displayed_zero_percent_authoritative_estimate = sum(
+        part$displayed_zero_percent_authoritative_estimate
+      ),
       n_count_samples = sum(part$count_eligible),
       n_density_samples = sum(part$density_eligible),
       n_taxa_recorded = length(site_taxa),
@@ -730,7 +903,7 @@ build_inv_science_contract <- function(source) {
   ))
   inv_science_require(per_sample, "inv_persample", c("sampleID", "sampleCode"))
   inv_science_require(taxonomy, "inv_taxonomyProcessed", c(
-    "sampleID", "sampleCode", "acceptedTaxonID", "scientificName",
+    "uid", "sampleID", "sampleCode", "acceptedTaxonID", "scientificName",
     "taxonRank", "order", "family", "class", "subclass",
     "individualCount", "estimatedTotalCount", "subsamplePercent"
   ))
@@ -746,9 +919,8 @@ build_inv_science_contract <- function(source) {
   practical <- is.na(practical_flag) | !nzchar(practical_flag) |
     toupper(practical_flag) == "OK"
   practical_rows <- field[practical, , drop = FALSE]
-  inv_science_assert(!any(inv_science_blank(practical_rows$sampleID) |
-                            inv_science_blank(practical_rows$sampleCode)),
-                     "Every practical collection row must have sampleID/sampleCode")
+  inv_science_assert(!any(inv_science_blank(practical_rows$sampleID)),
+                     "Every practical collection row must have sampleID")
 
   field$sample_key <- inv_science_pair_key(field$sampleID, field$sampleCode)
   per_sample$sample_key <- inv_science_pair_key(per_sample$sampleID,
@@ -760,18 +932,31 @@ build_inv_science_contract <- function(source) {
                      "Practical collection sample keys must be unique")
   inv_science_assert(!anyDuplicated(per_sample$sample_key),
                      "inv_persample sample keys must be unique")
-  missing_per <- setdiff(practical_keys, per_sample$sample_key)
   orphan_per <- setdiff(per_sample$sample_key, practical_keys)
-  inv_science_assert(!length(missing_per),
-                     "Practical collection sample has no inv_persample child: %s",
-                     if (length(missing_per)) missing_per[[1]] else "")
   inv_science_assert(!length(orphan_per),
                      "inv_persample child has no practical collection parent: %s",
                      if (length(orphan_per)) orphan_per[[1]] else "")
-  orphan_tax <- setdiff(unique(taxonomy$sample_key), per_sample$sample_key)
+  orphan_tax <- setdiff(unique(taxonomy$sample_key), practical_keys)
   inv_science_assert(!length(orphan_tax),
-                     "Taxonomy child has no inv_persample parent: %s",
+                     "Taxonomy child has no practical collection parent: %s",
                      if (length(orphan_tax)) orphan_tax[[1]] else "")
+
+  assert_code_alignment <- function(child, label) {
+    field_index <- match(child$sample_key, field$sample_key)
+    field_code <- field$sampleCode[field_index]
+    both_blank <- inv_science_blank(child$sampleCode) &
+      inv_science_blank(field_code)
+    both_present_equal <- !inv_science_blank(child$sampleCode) &
+      !inv_science_blank(field_code) &
+      as.character(child$sampleCode) == as.character(field_code)
+    valid <- both_blank | both_present_equal
+    inv_science_assert(
+      all(valid), "%s sampleCode conflicts with field provenance for %s",
+      label, if (any(!valid)) child$sample_key[which(!valid)[[1]]] else ""
+    )
+  }
+  assert_code_alignment(per_sample, "inv_persample")
+  assert_code_alignment(taxonomy, "inv_taxonomyProcessed")
 
   collapsed <- inv_science_collapse_taxonomy(taxonomy)
   tax_groups <- split(seq_len(nrow(collapsed)), collapsed$sample_key, drop = TRUE)
@@ -830,6 +1015,8 @@ build_inv_science_contract <- function(source) {
     INV_NONSTANDARD_SAMPLERS_RELEASE_2026
   field$primary_stratum <- !field$nonstandard_collection & !field$unstratifiable
   field$taxonomy_rows <- integer(nrow(field))
+  field$displayed_zero_percent_authoritative_estimate <-
+    rep(FALSE, nrow(field))
   field$total_estimated_count <- rep(NA_real_, nrow(field))
   field$count_issue <- rep(NA_character_, nrow(field))
 
@@ -839,6 +1026,9 @@ build_inv_science_contract <- function(source) {
     if (is.null(index)) next
     part <- collapsed[index, , drop = FALSE]
     field$taxonomy_rows[[i]] <- nrow(part)
+    field$displayed_zero_percent_authoritative_estimate[[i]] <- any(
+      part$displayed_zero_percent_authoritative_estimate
+    )
     issues <- unique(part$count_issue[!part$count_valid])
     if (length(issues)) {
       field$count_issue[[i]] <- paste(sort(issues), collapse = ";")
@@ -854,6 +1044,34 @@ build_inv_science_contract <- function(source) {
 
   valid_area <- is.finite(field$benthicArea_m2) & field$benthicArea_m2 > 0
   analysis_practical <- practical & field$primary_stratum
+  field$processing_unknown <- practical & !field$has_per_sample &
+    field$taxonomy_rows == 0L
+  field$taxonomy_count_unavailable <- practical &
+    field$taxonomy_rows > 0L & !is.na(field$count_issue)
+  field$processing_count_status <- rep(NA_character_, nrow(field))
+  field$processing_count_status[field$processing_unknown] <-
+    "processing_unknown"
+  field$processing_count_status[
+    practical & field$has_per_sample & field$taxonomy_rows == 0L
+  ] <- "processed_no_taxonomy"
+  field$processing_count_status[field$taxonomy_count_unavailable] <-
+    "taxonomy_count_unavailable"
+  field$processing_count_status[
+    practical & field$taxonomy_rows > 0L & is.na(field$count_issue)
+  ] <- "taxonomy_count_available"
+  practical_outcome_counts <- table(factor(
+    field$processing_count_status[practical],
+    levels = INV_PROCESSING_COUNT_STATUS_LEVELS
+  ))
+  inv_science_assert(
+    !anyNA(field$processing_count_status[practical]) &&
+      all(is.na(field$processing_count_status[!practical])) &&
+      sum(practical_outcome_counts) == sum(practical),
+    paste0(
+      "Every practical field opportunity must have exactly one mutually ",
+      "exclusive processing/count outcome"
+    )
+  )
   # Precedence is explicit: incomplete comparison grain remains the primary
   # status even when sampling was also impractical. Marginal support ledgers
   # count the underlying booleans, not these mutually exclusive labels.
@@ -864,10 +1082,14 @@ build_inv_science_contract <- function(source) {
   field$record_status[is.na(field$record_status) &
                         field$nonstandard_collection] <-
     "nonstandard_collection"
-  field$record_status[analysis_practical & field$taxonomy_rows == 0L] <-
+  field$record_status[analysis_practical & field$processing_unknown] <-
+    "processing_unknown"
+  field$record_status[analysis_practical & field$has_per_sample &
+                        field$taxonomy_rows == 0L] <-
     "processed_no_taxonomy"
-  field$record_status[analysis_practical & field$taxonomy_rows > 0L &
-                        !is.na(field$count_issue)] <- "count_unavailable"
+  field$record_status[analysis_practical &
+                        field$taxonomy_count_unavailable] <-
+    "count_unavailable"
   field$record_status[analysis_practical & field$taxonomy_rows > 0L &
                         is.na(field$count_issue) & !valid_area] <- "area_unavailable"
   field$count_eligible <- analysis_practical & field$taxonomy_rows > 0L &
@@ -918,6 +1140,9 @@ build_inv_science_contract <- function(source) {
       "has_per_sample", "sampling_practical", "sampler_type_normalized",
       "nonstandard_id_hint", "grain_complete", "unstratifiable",
       "nonstandard_collection", "primary_stratum",
+      "processing_unknown", "taxonomy_count_unavailable",
+      "displayed_zero_percent_authoritative_estimate",
+      "processing_count_status",
       "taxonomy_rows", "record_status", "count_issue", "density_issue",
       "benthicArea_m2", "total_estimated_count", "count_eligible",
       "density_eligible", "reported_zero_count", "sample_density_m2",
@@ -950,6 +1175,14 @@ build_inv_science_contract <- function(source) {
     opportunities$record_status,
     levels = INV_RECORD_STATUS_LEVELS
   ))
+  unresolved_rows <- inv_science_blank(taxonomy$acceptedTaxonID)
+  unresolved_ids <- unique(as.character(taxonomy$sampleID[unresolved_rows]))
+  unresolved_with_counted_taxa <- vapply(unresolved_ids, function(sample_id) {
+    rows <- as.character(taxonomy$sampleID) == sample_id &
+      !inv_science_blank(taxonomy$acceptedTaxonID) &
+      is.finite(inv_science_num(taxonomy$estimatedTotalCount))
+    any(rows)
+  }, logical(1))
 
   list(
     science_version = INV_SCIENCE_VERSION,
@@ -974,6 +1207,25 @@ build_inv_science_contract <- function(source) {
       strata = nrow(event_strata),
       taxonomy_rows_collapsed = nrow(collapsed),
       excluded_metabarcoding_rows = nrow(excluded_dna),
+      processing_unknown_opportunities = sum(opportunities$processing_unknown),
+      taxonomy_count_unavailable_opportunities = sum(
+        opportunities$taxonomy_count_unavailable
+      ),
+      displayed_zero_percent_authoritative_estimate_opportunities = sum(
+        opportunities$displayed_zero_percent_authoritative_estimate
+      ),
+      practical_processing_count_opportunities = sum(
+        opportunities$sampling_practical
+      ),
+      processing_count_status_counts = stats::setNames(
+        as.integer(practical_outcome_counts), names(practical_outcome_counts)
+      ),
+      unresolved_taxonomy_placeholder_rows = sum(unresolved_rows),
+      unresolved_taxonomy_placeholder_samples = length(unresolved_ids),
+      placeholder_samples_with_other_counted_taxa = sum(
+        unresolved_with_counted_taxa
+      ),
+      placeholder_only_samples = sum(!unresolved_with_counted_taxa),
       status_counts = stats::setNames(as.integer(status_counts),
                                       names(status_counts))
     )

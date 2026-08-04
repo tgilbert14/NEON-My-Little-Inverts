@@ -89,7 +89,7 @@ scripts/post_deploy_browser.mjs
   load the SYCA bundle, and complete a help-modal server round trip
 ```
 
-Each site bundle uses schema `2.0.0` and contains:
+Each site bundle uses schema `2.1.0` and contains:
 
 ```text
 opportunities  event_strata  taxon_strata  site_summary  meta

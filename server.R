@@ -390,8 +390,7 @@ server <- function(input, output, session) {
 
   output$siteNarrative <- renderUI({
     req(rv$meta, rv$opportunities)
-    ledger <- inv_status_ledger(rv$opportunities)
-    count <- stats::setNames(ledger$n, ledger$record_status)
+    processing <- inv_processing_count_counts(rv$opportunities)
     rank_text <- rv$meta$taxonomic_ranks %||% "rank unavailable"
     tags$ul(
       class = "insight-list field-first-story",
@@ -405,12 +404,12 @@ server <- function(input, output, session) {
         inv_value(rv$meta$n_count_samples), inv_value(rv$meta$n_density_samples)
       ))),
       tags$li(HTML(sprintf(
-        "<b>%s</b> processed samples have taxonomy unavailable and remain unknown; <b>%s</b> usable totals are explicitly reported as zero.",
-        inv_value(count[["processed_no_taxonomy"]]),
+        "<b>%s</b> practical field opportunities have a per-sample processing record but no taxonomy outcome; <b>%s</b> count-eligible samples are explicitly reported as zero.",
+        inv_value(processing[["processed_no_taxonomy"]]),
         inv_value(rv$meta$n_reported_zero_count)
       ))),
       tags$li(HTML(sprintf(
-        "<b>%s</b> opportunities lack one or more exact-stratum fields and remain visible outside quantitative event strata; nonstandard and impractical records keep their own statuses.",
+        "<b>%s</b> opportunities lack one or more exact-stratum fields and remain visible outside quantitative event strata; sampling-practicality and collection-method flags remain available separately from primary status.",
         inv_value(rv$meta$n_unstratifiable)
       ))),
       tags$li(HTML(sprintf(
@@ -738,16 +737,7 @@ server <- function(input, output, session) {
   network_display <- reactive({
     data <- SITE_INDEX
     data$name <- site_name_vec(data$site)
-    keep <- c(
-      "site", "name", "aquaticSiteType", "collectDate_min", "collectDate_max",
-      "n_opportunities", "n_primary_opportunities", "n_events", "n_strata",
-      "n_count_samples", "n_composition_samples", "n_density_samples",
-      "n_reported_zero_count", "n_taxa_recorded", "n_sampling_impractical",
-      "n_unstratifiable", "n_nonstandard_collection", "n_processed_no_taxonomy",
-      "n_count_unavailable", "n_area_unavailable", "n_density_unavailable",
-      "taxonomic_ranks", "source_stamp"
-    )
-    data[, keep, drop = FALSE]
+    data[, INV_NETWORK_EXPORT_COLUMNS, drop = FALSE]
   })
   output$networkTable <- DT::renderDT(dt(network_display(), page_length = 15L))
   output$networkCsv <- downloadHandler(

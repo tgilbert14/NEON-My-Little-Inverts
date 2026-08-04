@@ -60,6 +60,7 @@ fixture_science_source <- function() {
     stringsAsFactors = FALSE
   )
   taxonomy <- data.frame(
+    uid = sprintf("30000000-0000-4000-8000-%012d", 1:6),
     sampleID = c("SYCA.S1", "SYCA.S1", "SYCA.S1", "SYCA.S2", "SYCA.S3", "SYCA.S7"),
     sampleCode = c("S1", "S1", "S1", "S2", "S3", "S7"),
     acceptedTaxonID = c("A", "A", "B", "A", "C", "D"),
@@ -99,6 +100,7 @@ fixture_grain_source <- function() {
   )
   per_sample <- dimensions[c("sampleID", "sampleCode")]
   taxonomy <- data.frame(
+    uid = sprintf("40000000-0000-4000-8000-%012d", 1:5),
     sampleID = dimensions$sampleID, sampleCode = dimensions$sampleCode,
     acceptedTaxonID = "A", scientificName = "Alpha", taxonRank = "genus",
     order = "Ephemeroptera", family = "Baetidae", class = "Insecta",
@@ -130,12 +132,87 @@ expect_true(!opp$density_eligible[opp$sampleID %in% "SYCA.S5"],
             "processed-no-taxonomy is not silently zero-filled")
 expect_true(!opp$reported_zero_count[opp$sampleID %in% "SYCA.S5"],
             "taxonomy absence is not an explicit reported zero")
+
+masked_unstratifiable <- fixture_science_source()
+masked_unstratifiable$inv_fieldData$habitatType[
+  masked_unstratifiable$inv_fieldData$sampleID %in% "SYCA.S5"
+] <- NA_character_
+masked_unstratifiable_result <- build_inv_science_contract(
+  masked_unstratifiable
+)
+masked_unstratifiable_row <- masked_unstratifiable_result$opportunities[
+  masked_unstratifiable_result$opportunities$sampleID %in% "SYCA.S5",
+  , drop = FALSE
+]
+expect_true(
+  nrow(masked_unstratifiable_row) == 1L &&
+    masked_unstratifiable_row$processing_count_status ==
+      "processed_no_taxonomy" &&
+    masked_unstratifiable_row$record_status == "unstratifiable" &&
+    identical(
+      masked_unstratifiable_result$site_summary$n_processed_no_taxonomy,
+      1L
+    ),
+  paste(
+    "processed-without-taxonomy outcome survives unstratifiable primary-status",
+    "precedence in the site support summary"
+  )
+)
+
+masked_nonstandard <- fixture_science_source()
+masked_nonstandard$inv_fieldData$sampleID[
+  masked_nonstandard$inv_fieldData$sampleID %in% "SYCA.S5"
+] <- "SYCA.20240301.GRAB.5"
+masked_nonstandard$inv_fieldData$sampleCode[
+  masked_nonstandard$inv_fieldData$sampleCode %in% "S5"
+] <- "GRAB5"
+masked_nonstandard$inv_fieldData$samplerType[
+  masked_nonstandard$inv_fieldData$sampleID %in% "SYCA.20240301.GRAB.5"
+] <- "GRAB"
+masked_nonstandard$inv_persample$sampleID[
+  masked_nonstandard$inv_persample$sampleID %in% "SYCA.S5"
+] <- "SYCA.20240301.GRAB.5"
+masked_nonstandard$inv_persample$sampleCode[
+  masked_nonstandard$inv_persample$sampleCode %in% "S5"
+] <- "GRAB5"
+masked_nonstandard_result <- build_inv_science_contract(masked_nonstandard)
+masked_nonstandard_row <- masked_nonstandard_result$opportunities[
+  masked_nonstandard_result$opportunities$sampleID %in%
+    "SYCA.20240301.GRAB.5", , drop = FALSE
+]
+expect_true(
+  nrow(masked_nonstandard_row) == 1L &&
+    masked_nonstandard_row$processing_count_status ==
+      "processed_no_taxonomy" &&
+    masked_nonstandard_row$record_status == "nonstandard_collection" &&
+    identical(
+      masked_nonstandard_result$site_summary$n_processed_no_taxonomy,
+      1L
+    ),
+  paste(
+    "processed-without-taxonomy outcome survives nonstandard-collection",
+    "primary-status precedence in the site support summary"
+  )
+)
+
 expect_equal(opp$record_status[opp$sampleID %in% "SYCA.S7"],
              "reported_zero_count", "explicit zero count remains distinct")
 expect_true(opp$reported_zero_count[opp$sampleID %in% "SYCA.S7"],
             "explicit published zero count is auditable without calling absence verified")
 expect_equal(sum(opp$record_status == "sampling_impractical"), 1L,
              "impractical field opportunity is retained")
+expect_true(
+  sum(result$summary$processing_count_status_counts) ==
+      result$summary$practical_processing_count_opportunities &&
+    result$summary$practical_processing_count_opportunities ==
+      sum(opp$sampling_practical) &&
+    all(!is.na(opp$processing_count_status[opp$sampling_practical])) &&
+    all(is.na(opp$processing_count_status[!opp$sampling_practical])),
+  paste(
+    "every practical field opportunity has one mutually exclusive",
+    "processing/count outcome"
+  )
+)
 
 riffle <- result$event_strata[
   result$event_strata$eventID == "SYCA.2024.1" &
@@ -226,7 +303,7 @@ expect_error(build_inv_science_contract(bad),
 bad <- fixture_science_source()
 bad$inv_taxonomyProcessed$acceptedTaxonID[3] <- NA_character_
 expect_error(build_inv_science_contract(bad),
-             "blank acceptedTaxonID.*reviewed morphospecies/distinct identity")
+             "Unresolved taxonomy placeholder has a reported")
 
 bad <- fixture_science_source()
 bad$inv_taxonomyProcessed$estimatedTotalCount[1] <- 2
@@ -569,6 +646,54 @@ expect_equal(bad_result$opportunities$record_status[
   bad_result$opportunities$sampleID %in% "SYCA.S1"
 ], "count_unavailable", "impossible subsample percentage is quarantined")
 
+displayed_zero <- fixture_science_source()
+displayed_rows <- displayed_zero$inv_taxonomyProcessed$sampleID == "SYCA.S1"
+displayed_zero$inv_taxonomyProcessed$subsamplePercent[displayed_rows] <- 0
+displayed_result <- build_inv_science_contract(displayed_zero)
+displayed_s1 <- displayed_result$opportunities[
+  displayed_result$opportunities$sampleID %in% "SYCA.S1", , drop = FALSE
+]
+expect_true(
+  nrow(displayed_s1) == 1L && displayed_s1$count_eligible &&
+    displayed_s1$density_eligible &&
+    displayed_s1$displayed_zero_percent_authoritative_estimate &&
+    displayed_s1$processing_count_status == "taxonomy_count_available" &&
+    identical(
+      displayed_result$summary$
+        displayed_zero_percent_authoritative_estimate_opportunities,
+      1L
+    ),
+  paste(
+    "integer-displayed zero subsample percent retains finite published",
+    "estimatedTotalCount as the authoritative count"
+  )
+)
+displayed_event <- displayed_result$event_strata[
+  displayed_result$event_strata$eventID == "SYCA.2024.1" &
+    displayed_result$event_strata$habitatType == "riffle", , drop = FALSE
+]
+displayed_site <- displayed_result$site_summary[
+  displayed_result$site_summary$siteID == "SYCA", , drop = FALSE
+]
+expect_true(
+  displayed_event$n_displayed_zero_percent_authoritative_estimate == 1L &&
+    displayed_site$n_displayed_zero_percent_authoritative_estimate == 1L,
+  "displayed-zero authoritative-estimate support reconciles at event and site"
+)
+negative_percent <- fixture_science_source()
+negative_percent$inv_taxonomyProcessed$subsamplePercent[1L] <- -0.5
+negative_result <- build_inv_science_contract(negative_percent)
+expect_true(
+  negative_result$opportunities$record_status[
+    negative_result$opportunities$sampleID %in% "SYCA.S1"
+  ] == "count_unavailable" &&
+    !negative_result$opportunities$
+      displayed_zero_percent_authoritative_estimate[
+        negative_result$opportunities$sampleID %in% "SYCA.S1"
+      ],
+  "negative subsample percent remains invalid and is never authoritative"
+)
+
 bad <- fixture_science_source()
 bad$inv_taxonomyProcessed$individualCount[1] <- Inf
 bad_result <- build_inv_science_contract(bad)
@@ -632,6 +757,32 @@ expect_true(is.finite(stable_sd_riffle$se_sample_density_m2) &&
               abs(stable_sd_riffle$se_sample_density_m2 / 5e307 - 1) < 1e-12,
             "finite extreme sample densities retain a finite scaled SE")
 
+stable_taxon_density <- fixture_science_source()
+stable_taxon_density$inv_fieldData$benthicArea[
+  stable_taxon_density$inv_fieldData$sampleID %in% c("SYCA.S1", "SYCA.S2")
+] <- 1e-308
+stable_taxon_density$inv_taxonomyProcessed$estimatedTotalCount[1:4] <-
+  c(0.4, 0.6, 0, 1)
+stable_taxon_density$inv_taxonomyProcessed$individualCount[1:4] <-
+  c(0.4, 0.6, 0, 1)
+stable_taxon_result <- build_inv_science_contract(stable_taxon_density)
+stable_taxon_a <- stable_taxon_result$taxon_strata[
+  stable_taxon_result$taxon_strata$eventID == "SYCA.2024.1" &
+    stable_taxon_result$taxon_strata$habitatType == "riffle" &
+    stable_taxon_result$taxon_strata$taxon_key == "A", , drop = FALSE
+]
+expect_true(
+  nrow(stable_taxon_a) == 1L &&
+    is.finite(stable_taxon_a$mean_sample_density_m2) &&
+    is.finite(stable_taxon_a$median_sample_density_m2) &&
+    abs(stable_taxon_a$mean_sample_density_m2 / 1e308 - 1) < 1e-12 &&
+    abs(stable_taxon_a$median_sample_density_m2 / 1e308 - 1) < 1e-12,
+  paste(
+    "two finite extreme taxon densities retain finite scaled mean and",
+    "overflow-safe midpoint median"
+  )
+)
+
 cross_sample_overflow <- fixture_science_source()
 cross_sample_overflow$inv_fieldData$benthicArea[
   cross_sample_overflow$inv_fieldData$sampleID %in% c("SYCA.S1", "SYCA.S2")
@@ -647,6 +798,94 @@ expect_error(
 
 bad <- fixture_science_source()
 bad$inv_persample <- bad$inv_persample[!bad$inv_persample$sampleID %in% "SYCA.S2", ]
-expect_error(build_inv_science_contract(bad), "no inv_persample child")
+direct_result <- build_inv_science_contract(bad)
+direct_s2 <- direct_result$opportunities[
+  direct_result$opportunities$sampleID %in% "SYCA.S2", , drop = FALSE
+]
+expect_true(
+  !direct_s2$has_per_sample && direct_s2$taxonomy_rows == 1L &&
+    direct_s2$count_eligible && direct_s2$record_status == "quantified_community",
+  "taxonomy may attach directly to a unique practical sampleID without per-sample"
+)
+
+processing_unknown <- fixture_science_source()
+processing_unknown$inv_persample <- processing_unknown$inv_persample[
+  processing_unknown$inv_persample$sampleID != "SYCA.S5", , drop = FALSE
+]
+processing_result <- build_inv_science_contract(processing_unknown)
+processing_s5 <- processing_result$opportunities[
+  processing_result$opportunities$sampleID %in% "SYCA.S5", , drop = FALSE
+]
+expect_true(
+  processing_s5$processing_unknown && !processing_s5$has_per_sample &&
+    processing_s5$taxonomy_rows == 0L &&
+    processing_s5$record_status == "processing_unknown" &&
+    !processing_s5$count_eligible && !processing_s5$reported_zero_count,
+  "field opportunity without per-sample or taxonomy is processing-unknown, not zero"
+)
+
+placeholder_source <- fixture_science_source()
+placeholder <- placeholder_source$inv_taxonomyProcessed[1, , drop = FALSE]
+placeholder$uid <- "30000000-0000-4000-8000-000000000099"
+placeholder$acceptedTaxonID <- NA_character_
+placeholder$scientificName <- NA_character_
+placeholder$taxonRank <- NA_character_
+placeholder$order <- NA_character_
+placeholder$family <- NA_character_
+placeholder$individualCount <- NA_real_
+placeholder$estimatedTotalCount <- NA_real_
+placeholder$subsamplePercent <- 100
+placeholder_only <- placeholder
+placeholder_only$uid <- "30000000-0000-4000-8000-000000000098"
+placeholder_only$sampleID <- "SYCA.S5"
+placeholder_only$sampleCode <- "S5"
+placeholder_source$inv_taxonomyProcessed <- rbind(
+  placeholder_source$inv_taxonomyProcessed, placeholder, placeholder_only
+)
+placeholder_result <- build_inv_science_contract(placeholder_source)
+placeholder_opportunities <- placeholder_result$opportunities[
+  placeholder_result$opportunities$sampleID %in% c("SYCA.S1", "SYCA.S5"),
+  , drop = FALSE
+]
+expect_true(
+  all(placeholder_opportunities$taxonomy_count_unavailable) &&
+    all(placeholder_opportunities$record_status == "count_unavailable") &&
+    !any(placeholder_opportunities$count_eligible) &&
+    !any(placeholder_opportunities$reported_zero_count) &&
+    all(is.na(placeholder_opportunities$taxa_observed)) &&
+    identical(
+      placeholder_result$summary$placeholder_samples_with_other_counted_taxa,
+      1L
+    ) &&
+    identical(placeholder_result$summary$placeholder_only_samples, 1L) &&
+    !any(grepl("^unresolved-source-record:",
+               placeholder_result$taxon_strata$taxon_key)),
+  paste(
+    "coexisting and placeholder-only unresolved rows remain count-unavailable",
+    "and never enter zero, richness, EPT, or taxon-strata numerators"
+  )
+)
+
+blank_code <- fixture_science_source()
+for (table_name in c("inv_fieldData", "inv_persample",
+                     "inv_taxonomyProcessed")) {
+  blank_code[[table_name]]$sampleCode[
+    blank_code[[table_name]]$sampleID %in% "SYCA.S2"
+  ] <- NA_character_
+}
+blank_code_result <- build_inv_science_contract(blank_code)
+expect_true(
+  blank_code_result$opportunities$count_eligible[
+    blank_code_result$opportunities$sampleID %in% "SYCA.S2"
+  ],
+  "optional blank sampleCode preserves sampleID-primary joins"
+)
+
+misaligned_code <- blank_code
+misaligned_code$inv_taxonomyProcessed$sampleCode[
+  misaligned_code$inv_taxonomyProcessed$sampleID %in% "SYCA.S2"
+] <- "CONFLICT"
+expect_error(build_inv_science_contract(misaligned_code),
+             "sampleCode conflicts with field provenance")
 
 cat(sprintf("Inverts science-contract fixtures passed (%d checks).\n", checks))

@@ -92,9 +92,22 @@ expect(grepl("Support flags can overlap", ui_text, fixed = TRUE) &&
                fixed = TRUE) &&
          grepl("inv_support_counts", text[["R/report_pdf.R"]], fixed = TRUE),
        "app and PDF distinguish primary status from overlapping support flags")
+expect(grepl("inv_processing_count_counts(rv$opportunities)", server_text,
+             fixed = TRUE) &&
+         grepl("inv_processing_count_counts(bundle$opportunities)",
+               text[["R/report_pdf.R"]], fixed = TRUE) &&
+         !grepl('status[["processed_no_taxonomy"]]',
+                paste(server_text, text[["R/report_pdf.R"]]), fixed = TRUE),
+       paste(
+         "Overview and PDF count processed-without-taxonomy from the exclusive",
+         "processing outcome rather than primary status"
+       ))
 expect(grepl("source_qc_rows_retained", server_text, fixed = TRUE) &&
          grepl("metabarcode_field_rows", server_text, fixed = TRUE),
        "QC reconciliation renders retained rows and metabarcoding inventory")
+expect(grepl("data[, INV_NETWORK_EXPORT_COLUMNS, drop = FALSE]", server_text,
+             fixed = TRUE),
+       "network table and CSV use the reviewed export-column contract")
 for (retired in c("rodentConfetti", "invMascotSeen", "splash-guide",
                   "mascot-cheer")) {
   expect(!grepl(retired, paste(app_js, inverts_css), fixed = TRUE),
@@ -119,6 +132,26 @@ for (id in c(
 environment <- new.env(parent = baseenv())
 sys.source(path("R/inv_helpers.R"), envir = environment)
 
+network_export_contract_ok <- function(columns) {
+  !anyDuplicated(columns) &&
+    !length(setdiff(names(environment$inv_comparison_choices), columns))
+}
+expect(
+  network_export_contract_ok(environment$INV_NETWORK_EXPORT_COLUMNS),
+  "every selectable network metric is present in the table/CSV export"
+)
+for (metric in c(
+  "n_processing_unknown", "n_taxonomy_count_unavailable",
+  "n_displayed_zero_percent_authoritative_estimate"
+)) {
+  expect(
+    !network_export_contract_ok(setdiff(
+      environment$INV_NETWORK_EXPORT_COLUMNS, metric
+    )),
+    sprintf("network export contract rejects omission of %s", metric)
+  )
+}
+
 empty_frame <- function(columns) {
   out <- as.data.frame(stats::setNames(replicate(
     length(columns), character(), simplify = FALSE
@@ -130,23 +163,33 @@ opportunity <- empty_frame(environment$INV_OPPORTUNITY_COLUMNS)
 opportunity[1L, ] <- NA
 opportunity$opportunity_id <- "opportunity-1"
 opportunity$siteID <- "TEST"
-opportunity$record_status <- "sampling_impractical"
+opportunity$samplingImpractical <- "location dry"
+opportunity$record_status <- "unstratifiable"
 opportunity$taxonomy_rows <- 0L
+opportunity$has_per_sample <- FALSE
 opportunity$sampling_practical <- FALSE
 opportunity$primary_stratum <- FALSE
-opportunity$unstratifiable <- FALSE
+opportunity$grain_complete <- FALSE
+opportunity$unstratifiable <- TRUE
 opportunity$nonstandard_collection <- FALSE
 opportunity$count_eligible <- FALSE
 opportunity$density_eligible <- FALSE
 opportunity$reported_zero_count <- FALSE
+opportunity$processing_unknown <- FALSE
+opportunity$taxonomy_count_unavailable <- FALSE
+opportunity$displayed_zero_percent_authoritative_estimate <- FALSE
+opportunity$processing_count_status <- NA_character_
 opportunity$total_estimated_count <- NA_real_
 
 site_summary <- data.frame(
   siteID = "TEST", collectDate_min = "2020-01-01",
   collectDate_max = "2020-01-01", n_events = 0, n_strata = 0,
   n_opportunities = 1, n_sampling_impractical = 1,
-  n_nonstandard_collection = 0, n_unstratifiable = 0,
-  n_processed_no_taxonomy = 0, n_count_samples = 0,
+  n_nonstandard_collection = 0, n_unstratifiable = 1,
+  n_processing_unknown = 0, n_processed_no_taxonomy = 0,
+  n_taxonomy_count_unavailable = 0,
+  n_displayed_zero_percent_authoritative_estimate = 0,
+  n_count_samples = 0,
   n_density_samples = 0, n_taxa_recorded = 0,
   taxonomic_ranks = "", stringsAsFactors = FALSE
 )
@@ -194,7 +237,10 @@ meta$n_count_samples <- 0
 meta$n_composition_samples <- 0
 meta$n_density_samples <- 0
 meta$n_reported_zero_count <- 0
-meta$n_unstratifiable <- 0
+meta$n_unstratifiable <- 1
+meta$n_processing_unknown <- 0
+meta$n_taxonomy_count_unavailable <- 0
+meta$n_displayed_zero_percent_authoritative_estimate <- 0
 meta$n_taxa_recorded <- 0
 meta$taxonomic_ranks <- ""
 meta$comparison_boundary <- environment$INV_EXACT_GRAIN
@@ -227,9 +273,10 @@ taxonomy_quality <- empty_frame(
 issue_log <- empty_frame(environment$INV_ISSUE_LOG_COLUMNS)
 status_counts <- data.frame(
   record_status = environment$INV_RECORD_STATUS_LEVELS,
-  n = c(1L, rep(0L, length(environment$INV_RECORD_STATUS_LEVELS) - 1L)),
+  n = rep(0L, length(environment$INV_RECORD_STATUS_LEVELS)),
   stringsAsFactors = FALSE
 )
+status_counts$n[status_counts$record_status == "unstratifiable"] <- 1L
 source_rows <- data.frame(
   site = "TEST", collection_field_rows = 1L, metabarcode_field_rows = 0L,
   per_sample_rows = 0L, taxonomy_processed_rows = 0L, field_qc_rows = 1L,
@@ -240,7 +287,15 @@ reconciliation <- list(
   opportunity_rows = 1L, status_rows = 1L, primary_opportunities = 0L,
   count_eligible_samples = 0L, composition_eligible_samples = 0L,
   density_eligible_samples = 0L, reported_zero_count = 0L,
-  unstratifiable = 0L, taxonomy_rows_collapsed = 0L,
+  unstratifiable = 1L, processing_unknown = 0L,
+  taxonomy_count_unavailable = 0L,
+  displayed_zero_percent_authoritative_estimate = 0L,
+  practical_processing_count_opportunities = 0L,
+  processing_count_status_counts = stats::setNames(
+    rep(0L, length(environment$INV_PROCESSING_COUNT_STATUS_LEVELS)),
+    environment$INV_PROCESSING_COUNT_STATUS_LEVELS
+  ),
+  taxonomy_rows_collapsed = 0L,
   opportunity_complete = TRUE, count_contains_density = TRUE,
   source_qc_rows_retained = c(
     field = 1L, per_sample = 0L, taxonomy_processed = 0L, issue_log = 0L
@@ -305,39 +360,108 @@ expect(isTRUE(environment$inv_validate_bundle(
   fixture, "TEST", release_contract
 )), "exact Pass-9 bundle is accepted")
 
+masked_processing_outcome <- fixture
+masked_processing_outcome$opportunities$sampleID <- "sample-1"
+masked_processing_outcome$opportunities$sampleCode <- "A"
+masked_processing_outcome$opportunities$samplingImpractical <- "OK"
+masked_processing_outcome$opportunities$has_per_sample <- TRUE
+masked_processing_outcome$opportunities$sampling_practical <- TRUE
+masked_processing_outcome$opportunities$processing_count_status <-
+  "processed_no_taxonomy"
+masked_processing_outcome$site_summary$n_sampling_impractical <- 0L
+masked_processing_outcome$site_summary$n_processed_no_taxonomy <- 1L
+masked_processing_outcome$qc$reconciliation[[
+  "practical_processing_count_opportunities"
+]] <- 1L
+masked_processing_outcome$qc$reconciliation$processing_count_status_counts[
+  "processed_no_taxonomy"
+] <- 1L
+expect(
+  isTRUE(environment$inv_validate_bundle(
+    masked_processing_outcome, "TEST", release_contract
+  )) &&
+    identical(
+      unname(environment$inv_processing_count_counts(
+        masked_processing_outcome$opportunities
+      )[["processed_no_taxonomy"]]),
+      1L
+    ) &&
+    identical(masked_processing_outcome$opportunities$record_status,
+              "unstratifiable"),
+  paste(
+    "loaded app counts processed-without-taxonomy from the exclusive outcome",
+    "when primary status is unstratifiable"
+  )
+)
+stale_masked_summary <- masked_processing_outcome
+stale_masked_summary$site_summary$n_processed_no_taxonomy <- 0L
+expect(
+  !isTRUE(environment$inv_validate_bundle(
+    stale_masked_summary, "TEST", release_contract
+  )),
+  paste(
+    "loaded app rejects a primary-status-derived processed-without-taxonomy",
+    "summary that masks the exclusive outcome"
+  )
+)
+
 # The dominant status is intentionally not a partition of overlapping support
-# conditions. A sampling-impractical row can also lack an exact-grain field.
+# conditions. Missing exact-grain evidence precedes sampling impracticality.
 overlap <- fixture
-overlap$opportunities$unstratifiable <- TRUE
-overlap$site_summary$n_unstratifiable <- 1L
-overlap$meta$n_unstratifiable <- 1L
-overlap$qc$reconciliation$unstratifiable <- 1L
 expect(isTRUE(environment$inv_validate_bundle(
   overlap, "TEST", release_contract
-)), "unstratifiable support is accepted beside sampling-impractical status")
+)), "unstratifiable status is accepted beside sampling-impractical support")
 expect(identical(
-  unname(environment$inv_support_counts(overlap$opportunities)[
-    "unstratifiable"
-  ]), 1L
-), "support helper derives overlap counts from booleans, not primary status")
+  overlap$opportunities$record_status, "unstratifiable"
+), "unstratifiable is the primary status under exact precedence")
+expect(identical(
+  unname(environment$inv_support_counts(overlap$opportunities)[c(
+    "sampling_impractical", "unstratifiable"
+  )]), c(1L, 1L)
+), "support helper preserves overlapping marginal conditions")
 
 # A usable zero may have area_unavailable as its dominant processing status.
 zero_area <- fixture
+zero_area$opportunities$sampleID <- "sample-1"
+zero_area$opportunities$sampleCode <- "A"
+zero_area$opportunities$eventID <- "event-1"
+zero_area$opportunities$aquaticSiteType <- "stream"
+zero_area$opportunities$habitatType <- "riffle"
+zero_area$opportunities$samplerType <- "Surber"
+zero_area$opportunities$samplingImpractical <- "OK"
 zero_area$opportunities$sampling_practical <- TRUE
+zero_area$opportunities$sampler_type_normalized <- "surber"
+zero_area$opportunities$grain_complete <- TRUE
+zero_area$opportunities$unstratifiable <- FALSE
 zero_area$opportunities$primary_stratum <- TRUE
+zero_area$opportunities$processing_count_status <-
+  "taxonomy_count_available"
+zero_area$opportunities$taxonomy_rows <- 1L
 zero_area$opportunities$record_status <- "area_unavailable"
 zero_area$opportunities$count_eligible <- TRUE
 zero_area$opportunities$reported_zero_count <- TRUE
 zero_area$opportunities$total_estimated_count <- 0
 zero_area$site_summary$n_sampling_impractical <- 0L
+zero_area$site_summary$n_unstratifiable <- 0L
 zero_area$site_summary$n_count_samples <- 1L
 zero_area$meta$n_primary_opportunities <- 1L
 zero_area$meta$n_count_samples <- 1L
 zero_area$meta$n_reported_zero_count <- 1L
-zero_area$qc$status_counts$n <- c(0L, 0L, 0L, 0L, 0L, 1L, 0L, 0L, 0L)
+zero_area$meta$n_unstratifiable <- 0L
+zero_area$qc$status_counts$n[] <- 0L
+zero_area$qc$status_counts$n[
+  zero_area$qc$status_counts$record_status == "area_unavailable"
+] <- 1L
 zero_area$qc$reconciliation$primary_opportunities <- 1L
 zero_area$qc$reconciliation$count_eligible_samples <- 1L
 zero_area$qc$reconciliation$reported_zero_count <- 1L
+zero_area$qc$reconciliation$unstratifiable <- 0L
+zero_area$qc$reconciliation$practical_processing_count_opportunities <- 1L
+zero_area$qc$reconciliation$processing_count_status_counts[] <- 0L
+zero_area$qc$reconciliation$processing_count_status_counts[
+  "taxonomy_count_available"
+] <- 1L
+zero_area$qc$reconciliation$taxonomy_rows_collapsed <- 1L
 expect(isTRUE(environment$inv_validate_bundle(
   zero_area, "TEST", release_contract
 )), "reported-zero support is accepted beside area-unavailable status")
@@ -346,6 +470,92 @@ expect(identical(
     "reported_zero_count"
   ]), 1L
 ), "reported-zero total is boolean-derived rather than status-derived")
+
+# Coordinated valid labels must not be able to replace the primitive row state.
+# Each adversary also updates its dependent QC ledger, so a label-only
+# reconciliation would accept it.
+broken_precedence <- fixture
+broken_precedence$opportunities$record_status <- "sampling_impractical"
+broken_precedence$qc$status_counts$n[] <- 0L
+broken_precedence$qc$status_counts$n[
+  broken_precedence$qc$status_counts$record_status == "sampling_impractical"
+] <- 1L
+expect(!isTRUE(environment$inv_validate_bundle(
+  broken_precedence, "TEST", release_contract
+)), "coordinated status/QC tampering cannot bypass exact precedence")
+
+broken_processing <- zero_area
+broken_processing$opportunities$processing_count_status <-
+  "taxonomy_count_unavailable"
+broken_processing$qc$reconciliation$processing_count_status_counts[] <- 0L
+broken_processing$qc$reconciliation$processing_count_status_counts[
+  "taxonomy_count_unavailable"
+] <- 1L
+expect(!isTRUE(environment$inv_validate_bundle(
+  broken_processing, "TEST", release_contract
+)), "processing/count labels are rebuilt from primitive outcome evidence")
+
+broken_count <- zero_area
+broken_count$opportunities$count_eligible <- FALSE
+broken_count$opportunities$reported_zero_count <- FALSE
+broken_count$opportunities$record_status <- "count_unavailable"
+broken_count$site_summary$n_count_samples <- 0L
+broken_count$meta$n_count_samples <- 0L
+broken_count$meta$n_reported_zero_count <- 0L
+broken_count$qc$status_counts$n[] <- 0L
+broken_count$qc$status_counts$n[
+  broken_count$qc$status_counts$record_status == "count_unavailable"
+] <- 1L
+broken_count$qc$reconciliation$count_eligible_samples <- 0L
+broken_count$qc$reconciliation$reported_zero_count <- 0L
+expect(!isTRUE(environment$inv_validate_bundle(
+  broken_count, "TEST", release_contract
+)), "count eligibility is rebuilt from primitive taxonomy/count evidence")
+
+zero_with_area <- zero_area
+zero_with_area$opportunities$benthicArea_m2 <- 2
+zero_with_area$opportunities$density_eligible <- TRUE
+zero_with_area$opportunities$sample_density_m2 <- 0
+zero_with_area$opportunities$record_status <- "reported_zero_count"
+zero_with_area$site_summary$n_density_samples <- 1L
+zero_with_area$meta$n_density_samples <- 1L
+zero_with_area$qc$status_counts$n[] <- 0L
+zero_with_area$qc$status_counts$n[
+  zero_with_area$qc$status_counts$record_status == "reported_zero_count"
+] <- 1L
+zero_with_area$qc$reconciliation$density_eligible_samples <- 1L
+expect(isTRUE(environment$inv_validate_bundle(
+  zero_with_area, "TEST", release_contract
+)), "valid-area reported zero follows the exact density/status projection")
+
+broken_density <- zero_with_area
+broken_density$opportunities$density_eligible <- FALSE
+broken_density$opportunities$sample_density_m2 <- NA_real_
+broken_density$opportunities$record_status <- "area_unavailable"
+broken_density$site_summary$n_density_samples <- 0L
+broken_density$meta$n_density_samples <- 0L
+broken_density$qc$status_counts$n[] <- 0L
+broken_density$qc$status_counts$n[
+  broken_density$qc$status_counts$record_status == "area_unavailable"
+] <- 1L
+broken_density$qc$reconciliation$density_eligible_samples <- 0L
+expect(!isTRUE(environment$inv_validate_bundle(
+  broken_density, "TEST", release_contract
+)), "density eligibility is rebuilt from the primitive area/count quotient")
+
+broken_zero <- zero_with_area
+broken_zero$opportunities$reported_zero_count <- FALSE
+broken_zero$opportunities$record_status <- "quantified_community"
+broken_zero$meta$n_reported_zero_count <- 0L
+broken_zero$qc$status_counts$n[] <- 0L
+broken_zero$qc$status_counts$n[
+  broken_zero$qc$status_counts$record_status == "quantified_community"
+] <- 1L
+broken_zero$qc$reconciliation$reported_zero_count <- 0L
+expect(!isTRUE(environment$inv_validate_bundle(
+  broken_zero, "TEST", release_contract
+)), "reported-zero support is rebuilt from the primitive count total")
+
 broken <- fixture
 broken$opportunities <- NULL
 expect(!isTRUE(environment$inv_validate_bundle(

@@ -303,17 +303,27 @@ inv_install_neonutilities_getapi_compat <- function() {
 inv_persist_fetched_source <- function(source_data, artifact_path,
                                        evidence_path, receipt_path,
                                        fetched_at_utc, producer_git_sha) {
+  # neonUtilities can return Arrow ALTREP-backed atomic columns. Allocate
+  # ordinary base vectors before serialization so independent validators do not
+  # need Arrow merely to read the immutable evidence artifact.
+  source_data <- inv_materialize_source(source_data)
   inv_persist_fetch_evidence(
     source_data, artifact_path, evidence_path, producer_git_sha,
     fetched_at_utc
   )
   inv_verify_fetch_evidence(artifact_path, evidence_path)
 
+  # Authority is based on the exact object reread from the persisted bytes, not
+  # on a potentially different in-memory representation returned by the client.
+  persisted_source <- readRDS(artifact_path)
+  inv_assert(identical(persisted_source, source_data),
+             "Portable source changed during the persisted-byte round trip")
+
   # Any failure below intentionally leaves only the raw artifact plus its
   # non-authoritative evidence receipt. No source receipt means no candidate.
-  source_summary <- inv_validate_source(source_data)
+  source_summary <- inv_validate_source(persisted_source)
   inv_persist_authoritative_source_receipt(
-    source_data, artifact_path, receipt_path, producer_git_sha,
+    persisted_source, artifact_path, receipt_path, producer_git_sha,
     fetched_at_utc
   )
   receipt <- inv_verify_fetch_source_handoff(

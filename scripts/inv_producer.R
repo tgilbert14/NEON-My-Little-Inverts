@@ -12,8 +12,8 @@ if (!exists("build_inv_science_contract", mode = "function")) {
   source("scripts/inv_science_contract.R", local = TRUE)
 }
 
-INV_PRODUCER_SCHEMA_VERSION <- "2.0.0"
-INV_BUNDLE_SCHEMA_VERSION <- "2.0.0"
+INV_PRODUCER_SCHEMA_VERSION <- "2.1.0"
+INV_BUNDLE_SCHEMA_VERSION <- "2.1.0"
 INV_RELEASE_CONTRACT_SCHEMA_VERSION <- "1.0.0"
 INV_QC_AUDIT_SCHEMA_VERSION <- "1.0.0"
 
@@ -26,7 +26,78 @@ inv_producer_assert <- function(ok, ...) {
 inv_producer_num <- function(x) suppressWarnings(as.numeric(as.character(x)))
 
 inv_producer_dates <- function(x) {
-  suppressWarnings(as.Date(substr(as.character(x), 1L, 10L)))
+  if (inherits(x, "Date")) {
+    date_value <- as.Date(x)
+    raw_days <- unclass(date_value)
+    out <- rep(as.Date(NA), length(date_value))
+    valid <- !is.na(raw_days) & is.finite(raw_days) & raw_days == floor(raw_days)
+    if (any(valid)) {
+      calendar <- format(date_value[valid], "%Y-%m-%d")
+      round_trip <- suppressWarnings(as.Date(calendar, format = "%Y-%m-%d"))
+      exact <- !is.na(round_trip) & unclass(round_trip) == raw_days[valid]
+      out[which(valid)[exact]] <- round_trip[exact]
+    }
+    return(out)
+  }
+  if (inherits(x, "POSIXt")) {
+    instant <- suppressWarnings(as.POSIXct(x))
+    value <- format(instant, "%Y-%m-%d", tz = "UTC", usetz = FALSE)
+    out <- suppressWarnings(as.Date(value, format = "%Y-%m-%d"))
+    out[is.na(instant) | !is.finite(unclass(instant))] <- as.Date(NA)
+    return(out)
+  }
+
+  # Raw numeric encodings are ambiguous (for example, epoch days versus a
+  # compact calendar stamp) and are never authoritative publication dates.
+  if (!is.character(x) && !is.factor(x)) {
+    return(rep(as.Date(NA), length(x)))
+  }
+
+  value <- as.character(x)
+  out <- rep(as.Date(NA), length(value))
+  compact_neon <- !is.na(value) & grepl(
+    "^[0-9]{8}T([01][0-9]|2[0-3])[0-5][0-9][0-5][0-9]Z$", value
+  )
+  iso_utc <- !is.na(value) & grepl(
+    paste0(
+      "^[0-9]{4}-[0-9]{2}-[0-9]{2}T",
+      "([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    ),
+    value
+  )
+  iso_date <- !is.na(value) & grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", value)
+
+  parse_datetime <- function(mask, format_string) {
+    rows <- which(mask)
+    if (!length(rows)) return(invisible(NULL))
+    parsed <- suppressWarnings(strptime(
+      value[rows], format = format_string, tz = "UTC"
+    ))
+    round_trip <- format(
+      parsed, format = format_string, tz = "UTC", usetz = FALSE
+    )
+    valid <- !is.na(parsed) & !is.na(round_trip) &
+      round_trip == value[rows]
+    if (any(valid)) {
+      calendar <- format(
+        parsed[valid], format = "%Y-%m-%d", tz = "UTC", usetz = FALSE
+      )
+      out[rows[valid]] <<- as.Date(calendar, format = "%Y-%m-%d")
+    }
+    invisible(NULL)
+  }
+
+  parse_datetime(compact_neon, "%Y%m%dT%H%M%SZ")
+  parse_datetime(iso_utc, "%Y-%m-%dT%H:%M:%SZ")
+  date_rows <- which(iso_date)
+  if (length(date_rows)) {
+    parsed <- suppressWarnings(as.Date(
+      value[date_rows], format = "%Y-%m-%d"
+    ))
+    valid <- !is.na(parsed) & format(parsed, "%Y-%m-%d") == value[date_rows]
+    out[date_rows[valid]] <- parsed[valid]
+  }
+  out
 }
 
 inv_producer_qc_contract <- function() {
@@ -60,11 +131,18 @@ inv_producer_save_rds <- function(x, path) {
 }
 
 inv_producer_publication_stamp <- function(source) {
-  dates <- unlist(lapply(INV_REQUIRED_TABLES, function(table_name) {
-    inv_producer_dates(source[[table_name]]$publicationDate)
-  }), use.names = FALSE)
+  dates_by_table <- lapply(INV_REQUIRED_TABLES, function(table_name) {
+    raw <- source[[table_name]]$publicationDate
+    parsed <- inv_producer_dates(raw)
+    inv_producer_assert(
+      length(parsed) == length(raw) && !anyNA(parsed),
+      "Verified source has an unparseable publicationDate in %s",
+      table_name
+    )
+    parsed
+  })
+  dates <- unlist(dates_by_table, use.names = FALSE)
   dates <- as.Date(dates, origin = "1970-01-01")
-  dates <- dates[!is.na(dates)]
   inv_producer_assert(length(dates) > 0L,
                       "Verified source has no usable publicationDate stamp")
   format(max(dates), "%Y-%m-%d")
@@ -96,6 +174,7 @@ inv_producer_source_provenance <- function(receipt, receipt_path, source_stamp) 
     citation_sha256 = as.character(receipt$citation$sha256),
     table_rows = table_rows,
     metadata_rows = metadata_rows,
+    segregation = receipt$segregation,
     producer_git_sha = as.character(receipt$producer$git_sha),
     producer_r_version = as.character(receipt$producer$r_version),
     neonUtilities_version = as.character(receipt$producer$neonUtilities_version),
@@ -109,10 +188,14 @@ inv_producer_site_source_counts <- function(source) {
     grepl("[.]DNA$", trimws(as.character(field$sampleID)))
   collection <- field[!dna, , drop = FALSE]
   metabarcode <- field[dna, , drop = FALSE]
-  collection$sample_key <- inv_science_pair_key(collection$sampleID,
-                                                 collection$sampleCode)
-  pair_to_site <- stats::setNames(as.character(collection$siteID),
-                                  collection$sample_key)
+  mapped_field <- field[!inv_science_blank(field$sampleID), , drop = FALSE]
+  mapped_field$sample_key <- inv_science_pair_key(
+    mapped_field$sampleID, mapped_field$sampleCode
+  )
+  inv_producer_assert(!anyDuplicated(mapped_field$sample_key),
+                      "Raw field sampleID-to-site map is ambiguous")
+  pair_to_site <- stats::setNames(as.character(mapped_field$siteID),
+                                  mapped_field$sample_key)
 
   per_sample <- source$inv_persample
   per_keys <- inv_science_pair_key(per_sample$sampleID, per_sample$sampleCode)
@@ -142,12 +225,9 @@ inv_producer_site_source_counts <- function(source) {
 
 inv_producer_sample_site_map <- function(source) {
   field <- source$inv_fieldData
-  dna <- !inv_science_blank(field$sampleID) &
-    grepl("[.]DNA$", trimws(as.character(field$sampleID)))
-  field <- field[!dna, , drop = FALSE]
   field$sample_key <- inv_science_pair_key(field$sampleID, field$sampleCode)
   field <- field[
-    !inv_science_blank(field$sampleID) & !inv_science_blank(field$sampleCode),
+    !inv_science_blank(field$sampleID),
     c("sample_key", "siteID"), drop = FALSE
   ]
   duplicate_keys <- unique(field$sample_key[duplicated(field$sample_key)])
@@ -155,7 +235,7 @@ inv_producer_sample_site_map <- function(source) {
     length(unique(as.character(field$siteID[field$sample_key == key]))) > 1L
   }, logical(1))]
   inv_producer_assert(!length(ambiguous),
-                      "Sample pair maps to multiple sites: %s",
+                      "sampleID maps to multiple sites: %s",
                       paste(ambiguous, collapse = ", "))
   field <- field[!duplicated(field$sample_key), , drop = FALSE]
   stats::setNames(as.character(field$siteID), field$sample_key)
@@ -268,7 +348,7 @@ inv_producer_source_qc <- function(source) {
   )
   per_identity <- c("sampleID", "sampleCode")
   tax_identity <- c(
-    "sampleID", "sampleCode", "slideID", "slideCode", "scientificName",
+    "uid", "sampleID", "sampleCode", "scientificName",
     "morphospeciesID", "invertebrateLifeStage", "sizeClass", "sizeCategory",
     "immatureSpecimen", "indeterminateSpecies", "taxonRankQualifier",
     "sampleCondition", "distinctTaxon", "identificationRemarks",
@@ -345,6 +425,20 @@ inv_producer_site_qc <- function(opportunities, source_counts, status_levels,
       density_eligible_samples = sum(opportunities$density_eligible),
       reported_zero_count = sum(opportunities$reported_zero_count),
       unstratifiable = sum(opportunities$unstratifiable),
+      processing_unknown = sum(opportunities$processing_unknown),
+      taxonomy_count_unavailable = sum(
+        opportunities$taxonomy_count_unavailable
+      ),
+      displayed_zero_percent_authoritative_estimate = sum(
+        opportunities$displayed_zero_percent_authoritative_estimate
+      ),
+      practical_processing_count_opportunities = sum(
+        opportunities$sampling_practical
+      ),
+      processing_count_status_counts = table(factor(
+        opportunities$processing_count_status[opportunities$sampling_practical],
+        levels = INV_PROCESSING_COUNT_STATUS_LEVELS
+      )),
       taxonomy_rows_collapsed = sum(opportunities$taxonomy_rows),
       opportunity_complete = identical(nrow(opportunities),
                                        as.integer(source_counts$collection_field_rows)),
@@ -419,6 +513,13 @@ inv_producer_bundle <- function(site, science, source, source_counts,
     n_density_samples = sum(opportunities$density_eligible),
     n_reported_zero_count = sum(opportunities$reported_zero_count),
     n_unstratifiable = sum(opportunities$unstratifiable),
+    n_processing_unknown = sum(opportunities$processing_unknown),
+    n_taxonomy_count_unavailable = sum(
+      opportunities$taxonomy_count_unavailable
+    ),
+    n_displayed_zero_percent_authoritative_estimate = sum(
+      opportunities$displayed_zero_percent_authoritative_estimate
+    ),
     n_taxa_recorded = as.integer(site_summary$n_taxa_recorded),
     taxonomic_ranks = as.character(site_summary$taxonomic_ranks),
     comparison_boundary = paste(
@@ -481,10 +582,16 @@ inv_producer_site_index <- function(bundles) {
       n_density_samples = meta$n_density_samples,
       n_reported_zero_count = meta$n_reported_zero_count,
       n_unstratifiable = meta$n_unstratifiable,
+      n_processing_unknown = meta$n_processing_unknown,
+      n_taxonomy_count_unavailable = meta$n_taxonomy_count_unavailable,
+      n_displayed_zero_percent_authoritative_estimate =
+        meta$n_displayed_zero_percent_authoritative_estimate,
       n_taxa_recorded = meta$n_taxa_recorded,
       n_sampling_impractical = sum(!opportunities$sampling_practical),
       n_nonstandard_collection = sum(opportunities$nonstandard_collection),
-      n_processed_no_taxonomy = status_count("processed_no_taxonomy"),
+      n_processed_no_taxonomy = sum(
+        opportunities$processing_count_status %in% "processed_no_taxonomy"
+      ),
       n_count_unavailable = status_count("count_unavailable"),
       n_area_unavailable = status_count("area_unavailable"),
       n_density_unavailable = status_count("density_unavailable"),
@@ -547,7 +654,15 @@ inv_producer_search_index <- function(bundles, site_index, source_provenance,
 }
 
 inv_producer_release <- function(source, receipt, receipt_path) {
-  science <- build_inv_science_contract(source)
+  analysis <- inv_prepare_analysis_source(source)
+  science <- build_inv_science_contract(analysis$source)
+  # The source gate has already removed the exact .DNA family before the
+  # scientific transform, so restore the audited raw field count in the
+  # release-level exclusion ledger (never infer it from the post-quarantine
+  # analysis frame).
+  science$summary$excluded_metabarcoding_rows <- as.integer(
+    analysis$dna_family_quarantine$rows[["inv_fieldData"]]
+  )
   inv_producer_assert(identical(sort(unique(science$opportunities$siteID)),
                                 INV_EXPECTED_SITES),
                       "Science opportunity roster differs from the canonical sites")
@@ -557,6 +672,9 @@ inv_producer_release <- function(source, receipt, receipt_path) {
   )
   source_counts <- inv_producer_site_source_counts(source)
   qc_contract <- inv_producer_qc_contract()
+  # Retain the audited auxiliary per-sample row and every raw taxonomy row in
+  # QC. Taxonomy UID is the honest record discriminator because the basic
+  # package omits the expanded-only slide identity fields.
   source_qc <- inv_producer_source_qc(source)
   bundles <- stats::setNames(lapply(INV_EXPECTED_SITES, function(site) {
     inv_producer_bundle(

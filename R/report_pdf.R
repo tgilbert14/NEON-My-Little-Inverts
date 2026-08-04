@@ -30,6 +30,7 @@
   meta <- bundle$meta
   ledger <- inv_status_ledger(bundle$opportunities)
   status <- stats::setNames(ledger$n, ledger$record_status)
+  processing <- inv_processing_count_counts(bundle$opportunities)
   support <- inv_support_counts(bundle$opportunities)
   source <- bundle$provenance$source %||% list()
   site_row <- neon_sites[neon_sites$site == site_code, , drop = FALSE]
@@ -124,12 +125,17 @@
             fmt(support[["sampling_impractical"]]),
             fmt(support[["nonstandard_collection"]]),
             fmt(support[["unstratifiable"]])),
-    sprintf("Primary processing status: taxonomy unavailable %s · count unavailable %s · area unavailable %s · density unavailable %s.",
-            fmt(status[["processed_no_taxonomy"]]),
+    sprintf("Exclusive outcomes among practical opportunities: processing unknown %s · processed without taxonomy %s · taxonomy/count unavailable %s · taxonomy/count available %s.",
+            fmt(processing[["processing_unknown"]]),
+            fmt(processing[["processed_no_taxonomy"]]),
+            fmt(processing[["taxonomy_count_unavailable"]]),
+            fmt(processing[["taxonomy_count_available"]])),
+    sprintf("Primary quantitative status: count unavailable %s · area unavailable %s · density unavailable %s.",
             fmt(status[["count_unavailable"]]), fmt(status[["area_unavailable"]]),
             fmt(status[["density_unavailable"]])),
-    sprintf("Reported-zero support flag: %s · quantified-community primary status: %s.",
+    sprintf("Overlapping support flags: reported zero %s · integer-displayed 0%% with authoritative estimate %s · quantified-community primary status %s.",
             fmt(support[["reported_zero_count"]]),
+            fmt(support[["displayed_zero_percent_authoritative_estimate"]]),
             fmt(status[["quantified_community"]]))
   )
   for (item in ledger_lines) {
