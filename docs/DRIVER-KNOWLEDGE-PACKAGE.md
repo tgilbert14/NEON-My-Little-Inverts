@@ -206,7 +206,7 @@ Connect additionally needs a real bidirectional Shiny action. Do not map a publi
 When the release closes, update the app-local handoff and the central register,
 suite learning loop, revamp plan, and Driver handoff. Record there:
 
-- PR run `30888675725`'s exact-head conclusion;
+- the ancestor PR's exact-head conclusion;
 - the exact merge, Pages, and post-deploy run IDs;
 - Pages artifact IDs/digests where available;
 - Connect publication number/content identity and live Shiny round trip; and
