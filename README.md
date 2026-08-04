@@ -1,98 +1,143 @@
 # NEON My Little Inverts
 
-An (unofficial) R/Shiny explorer for NEON's **Macroinvertebrate collection**
-(`DP1.20120.001`) — the small animals living on the bottom of NEON's streams,
-rivers, and lakes (insect larvae, worms, snails, crustaceans). Part of the
-Desert Data Labs **NEON series**. Pick one of **34 aquatic sites** and read its
-community: how dense it is, how many kinds of animal live there, and how big a
-share are the **EPT** groups (mayflies, stoneflies, caddisflies) that need
-clean, well-oxygenated water.
+An unofficial R/Shiny explorer for NEON’s **Macroinvertebrate collection**
+(`DP1.20120.001`): aquatic invertebrates recorded in streams, rivers, and
+lake-bottom samples. It is part of the Desert Data Labs NEON series.
 
-This is a from-scratch rebuild of a 2020 single-site prototype; it now covers
-all 34 sites, runs on the v2 suite chrome, and ships the suite-standard QC and
-honesty layers.
+The app is field-first. Every non-metabarcoding field row is an opportunity,
+including rows where sampling was impractical or later processing did not
+produce a quantitative community record. The interface keeps missing, unknown,
+and a reported laboratory zero distinct.
 
-## The honesty contract (read before reading any number)
+## Scientific contract
 
-- **Density is a within-site standardized index** (individuals / m², =
-  estimatedTotalCount / benthicArea), **not an absolute population**. It is valid
-  for comparing bouts within one site, within a habitat type and sampler type.
-  Across-site differences reflect habitat and sampling method as much as biology.
-- **No biotic-index / IBI / pass-fail score, no good–fair–poor, no
-  impairment or aquatic-life-use call.** NEON aquatic sites have **no calibrated
-  reference condition** and no state biotic index, so the app shows within-site
-  trends and cross-site *direction* only. (Method: EPA Rapid Bioassessment,
-  Barbour et al. 1999.)
-- **Lakes are naturally EPT-poor.** Low EPT at a lake is the ecosystem, not
-  impairment, and lakes are not directly comparable to streams on EPT metrics.
-- **Rarefied richness and Chao1 are suppressed** where the count is too small to
-  standardize honestly (< 100 individuals or < 3 samples).
+- The source is the exact public `RELEASE-2026` product with provisional data
+  disabled. The fetch produces an immutable raw RDS artifact and SHA-256 source
+  receipt before any derived bundle is built.
+- `inv_fieldData` is the opportunity ledger. Practical samples reconcile
+  one-to-one to `inv_persample`; processed taxonomy rows remain children of that
+  sample. `.DNA` field rows are inventoried separately as metabarcoding material.
+- `GRAB`, `BRYOZOAN`, and `MACROALGAE` special-ID records remain auditable as
+  nonstandard collections but are excluded from the primary quantitative
+  strata.
+- The quantitative grain is always
+  `site × event × aquaticSiteType × habitatType × samplerType`. The app never
+  replaces habitat or sampler with a modal label.
+- Count eligibility and density eligibility are separate. Density requires a
+  usable benthic area; missing area does not erase count or occurrence records.
+- Taxon support is zero-filled only across count-valid processed samples in the
+  same exact stratum. A processed sample without taxonomy stays unknown.
+- Identification rank is retained. “Taxa recorded” can mix ranks and must not be
+  interpreted as a species-only total.
+- EPT is a descriptive taxonomic grouping. Unknown-order positive counts remain
+  in the composition denominator, and order-classification support is displayed
+  beside the EPT share.
+- Expanded counts and collection density are properties of the sampled record,
+  not population estimates. Cross-site views compare effort and record counts
+  only; the app does not calculate a condition or quality score.
 
-## What's in the app
+## Loaded experience
 
-- A national **picker map** (34 sites, sized by survey effort, coloured by water
-  type) with an Explore / About popup, plus a by-name select panel and a browse
-  list — all routed through one shared loader, so the sidebar stays in sync.
-- The **EPT Pulse** (the signature): each bout's %EPT and density over time,
-  marker = habitat, colour = sampler type, flagged bouts greyed.
-- A **Taxa Board** pin-card scatter (density × ubiquity, tap to pin a card,
-  download with pins baked in), a **Diversity** tab (rarefied richness + the
-  composition stack), an **Across the country** cross-site gradient (Spearman ρ
-  with CI, space-for-time caveat), a within-site **Map** of the sampled reach,
-  and a **Taxon Profile** with a downloadable card.
-- A **clickable + downloadable QC inspector** (the 8 site-level checks ranked
-  high / warn / info, each opening the offending sample rows + a per-flag CSV).
-- Downloads everywhere: per-bout metrics CSV, taxa board CSV, cross-site table
-  CSV, a column **codebook**, and a site **report** — a printable one-page
-  **PDF** (branded, base-graphics, no pandoc/LaTeX dependency) plus the
-  machine-readable one-row-per-metric **CSV**.
+- A national map and by-name picker for the 34 aquatic sites.
+- An **Opportunity ledger** that shows every mutually exclusive processing
+  status and a status-by-year view. Separate support flags retain overlapping
+  conditions such as reported zero plus unavailable benthic area.
+- **Event strata** charts that compare events only after water type, habitat,
+  and sampler are fixed. Count, composition, and density denominators remain
+  visible.
+- **Taxon records** inside one exact stratum: sample support, expanded laboratory
+  count sum, mixed identification rank, EPT membership, order-classification
+  status, and separate count/density denominators.
+- A **Network effort** view containing opportunity, event, sample-eligibility,
+  processing-status, and mixed-rank record counts—no raw biological ranking.
+- **QC + provenance** tables with the complete opportunity ledger, metric
+  contract, source receipt, reconciliation counts, and contextual source-quality
+  evidence. Source flags are displayed and retained; they are not automatic
+  row-exclusion rules.
+- CSV exports and a one-page field-first PDF report.
+- One content-addressed production identity binds the source receipt/artifact,
+  34-bundle hash family, derived indexes, runtime files, Pages poster, and
+  canonical Connect manifest. The app exposes that exact ID in its initial HTML;
+  Pages publishes a byte-identical minimal receipt at `docs/release.json`.
 
 ## Data pipeline
 
+```text
+scripts/fetch_inv_all.R
+  exact RELEASE-2026 fetch -> raw RDS + evidence; immutable source receipt only
+  after validation
+
+scripts/build_inv_data.R
+  verified source -> field-first science contract -> 34 site bundles
+  + site_index.rds + cross_site.rds + search_index.rds
+  + release_contract.rds + source_receipt.json
+
+scripts/build_cross_site.R / scripts/build_search_index.R
+  rebuild support-only indexes from exact hashed site bundles; no live fetch
+
+scripts/verify_refresh_candidate.R
+  independent candidate, provenance, schema, roster, and scientific-contract gate
+
+scripts/write_release_identity.R
+  clean-validator-only Pages + Connect identity, followed by final-manifest verify
+
+scripts/post_deploy_smoke.sh
+  wait for both public hosts to expose the exact validated ID; reject error shells
+
+scripts/post_deploy_browser.mjs
+  open Connect with lockfile-pinned Playwright; require the exact 34-site roster,
+  load the SYCA bundle, and complete a help-modal server round trip
 ```
-scripts/fetch_inv_all.R     # ONE-TIME / on-demand: pull DP1.20120.001 (all sites)
-                            #   -> ../inverts-data-fetch/DP1.20120.001_all.rds
-                            #   run with R-4.3.1 (neonUtilities; R-4.5.2 crashes on loadByProduct).
-                            #   (The NEONize playbook's canonical fetch version is R-4.1.1;
-                            #    R-4.3.1 is the locally-validated equivalent for this app.)
-scripts/build_inv_data.R    # the SINGLE BUILDER: raw stack -> data/sites/<SITE>.rds (34),
-                            #   data/site_index.rds, data/cross_site.rds, data-sample/demo.rds.
-                            #   All metrics (density, richness, EPT, Hill, Chao1, rarefaction,
-                            #   composition surrogates, 8 QC counts) are precomputed here.
-scripts/build_cross_site.R  # rebuild the index + cross-site table from the committed
-                            #   bundles (no fetch) — the fast monthly-refresh rebuild.
-scripts/write_manifest.R    # (re)write + CHECK manifest.json for Connect Cloud (lean: no
-                            #   neonUtilities / arrow; data.table kept).
+
+Each site bundle uses schema `2.1.0` and contains:
+
+```text
+opportunities  event_strata  taxon_strata  site_summary  meta
+metric_contract  qc  provenance
 ```
 
-The deployed app makes **zero** live NEON calls — it reads the committed
-`data/sites/*.rds` bundles at boot. `neonUtilities` is referenced by a computed
-name in `global.R` so the rsconnect scanner never pins it into the manifest.
+The loaded app fails closed on a legacy or malformed bundle. It makes no live
+NEON request; all data and provenance are committed release artifacts.
 
-## Deploy (Posit Connect Cloud, git-backed)
+## QC evidence
 
-Connect Cloud watches this repo's `main` branch; **a reviewed merge is the
-deploy**. No shinyapps secrets, no `rsconnect/`, no `deploy.R`.
-`.github/workflows/refresh-data.yml` runs a restricted producer → independent
-validator → review-branch publisher. Scheduled runs rebuild only from the
-committed 34-site family; a full NEON fetch is manual and requires
-`workflow_dispatch` with `skip_download=false`. A validated candidate may update
-only `automation/invert-data-refresh`; it can never write `main` or approve its
-own PR.
+The refresh preserves contextual fields from all three source layers where
+available:
 
-**One-time owner setup (the agent can't do these):** create the Connect Cloud
-app from this repo, set `APP_URL` in `docs/index.html`, and keep `main`
-protected. Review the exact candidate head and its literal-head checks before
-merging the refresh PR; the Actions publisher does not require direct-main
-access.
+- field: `dataQF`
+- per-sample: `dataQF`, `qcSortDate`, `qcSortingEfficacy`,
+  `qcIterationCount`, `qcPercentSimilarity`, `qcSortedBy`,
+  `qcEnumerationDifference` (PDE), and `qcTaxonomicDifference` (PTD)
+- taxonomy: `qcChecked` and `dataQF`
+
+These fields are evidence for review, not an automatic exclusion policy.
+
+## Refresh and deployment
+
+Connect Cloud watches `main`; a reviewed merge is the deployment. The scheduled
+workflow rebuilds derived indexes from the committed site family. A fresh NEON
+download is manual (`workflow_dispatch` with `skip_download=false`) and must pass
+the source, science, candidate, and exact-head review gates before the restricted
+publisher can update the review branch. The automation cannot write directly to
+`main` or approve its own candidate. Manual fetches preserve one 90-day
+raw-plus-evidence artifact even on contract drift; without the authoritative
+source receipt it can never enter candidate publication. A bounded, token-safe
+authentication preflight retries transport/429/5xx failures and distinguishes
+401/403 rejection without printing request headers, response bodies, or secret
+material. The pinned `neonUtilities` 4.0.1 fetch then uses a guarded, process-local
+`getAPI` compatibility binding with the same two-argument response contract, the
+preflight-proven stable user agent and timeout, bounded transport retries, and
+automatic restoration when the fetch exits. It also initializes and verifies the
+package's exact official API base URL in its process-local namespace, which 4.0.1
+otherwise leaves unset for a namespace-only call, and restores the prior field on
+exit. A transport failure cannot masquerade as fetched source data.
 
 ## Run locally
 
 ```r
-# from the app directory, in R-4.5.2 (runs the app fine; only the FETCH needs 4.3.1)
 shiny::runApp(".")
 ```
 
-Data: NEON Macroinvertebrate collection (`DP1.20120.001`). Not affiliated with
-NEON, Battelle, or the NSF. An educational data-exploration tool by Desert Data
-Labs (Tucson, AZ).
+Use the locked runtime and dependencies recorded by the release workflow. Data:
+NEON Macroinvertebrate collection (`DP1.20120.001`). Not affiliated with NEON,
+Battelle, or the NSF. Built by Desert Data Labs in Tucson, Arizona.

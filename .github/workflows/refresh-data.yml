@@ -81,21 +81,33 @@ jobs:
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           r-version: "4.5.2"
+          cran: https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15
           use-public-rspm: false
 
       - name: Install producer dependencies
         uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
-          packages: neonUtilities, dplyr, tibble
+          packages: >
+            url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/neonUtilities_4.0.1.tar.gz,
+            url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/bsicons_0.1.2.tar.gz,
+            dplyr, tibble, jsonlite, digest
           pak-version: stable
           dependencies: '"hard"'
-          cache-version: invert-producer-v1
+          cache-version: invert-producer-source-contract-v4
           install-pandoc: "false"
           install-quarto: "false"
 
+      - name: Test the offline RELEASE-2026 source, science, and producer contracts
+        run: |
+          Rscript --vanilla scripts/test_inv_source_contract.R
+          Rscript --vanilla scripts/test_inv_science_contract.R
+          Rscript --vanilla scripts/test_inv_producer.R
+          Rscript --vanilla scripts/test_inv_release_verifier.R
+          Rscript --vanilla scripts/check_loaded_app_contract.R
+
       # Schedule inputs are absent and therefore must never select this step.
       # A full fetch is possible only through an explicit manual false input.
-      - name: Fetch and bundle the exact 34-site product (manual only)
+      - name: Fetch and receipt-verify the exact source (manual only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_download == false }}
         timeout-minutes: 240
         env:
@@ -104,27 +116,79 @@ jobs:
           set -euo pipefail
           Rscript --vanilla scripts/fetch_inv_all.R
           test -f ../inverts-data-fetch/DP1.20120.001_all.rds
-          rm -f data/sites/*.rds data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds
+          test -f ../inverts-data-fetch/DP1.20120.001_fetch_evidence.json
+          test -f ../inverts-data-fetch/DP1.20120.001_source_receipt.json
+          Rscript --vanilla -e 'source("scripts/inv_source_contract.R"); inv_verify_fetch_evidence("../inverts-data-fetch/DP1.20120.001_all.rds", "../inverts-data-fetch/DP1.20120.001_fetch_evidence.json")'
+          Rscript --vanilla -e 'source("scripts/inv_source_contract.R"); inv_verify_source_receipt("../inverts-data-fetch/DP1.20120.001_all.rds", "../inverts-data-fetch/DP1.20120.001_source_receipt.json")'
+
+      - name: Stage exact raw fetch evidence and conditional authority
+        id: source_stage
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.skip_download == false }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f ../inverts-data-fetch/DP1.20120.001_all.rds || \
+                ! -f ../inverts-data-fetch/DP1.20120.001_fetch_evidence.json ]]; then
+            echo "No raw source evidence exists; preserving the primary fetch failure only."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          source_stage="$RUNNER_TEMP/invert-source"
+          mkdir "$source_stage"
+          cp -- ../inverts-data-fetch/DP1.20120.001_all.rds "$source_stage/DP1.20120.001_all.rds"
+          cp -- ../inverts-data-fetch/DP1.20120.001_fetch_evidence.json "$source_stage/DP1.20120.001_fetch_evidence.json"
+          if [[ -f ../inverts-data-fetch/DP1.20120.001_source_receipt.json ]]; then
+            cp -- ../inverts-data-fetch/DP1.20120.001_source_receipt.json "$source_stage/DP1.20120.001_source_receipt.json"
+            expected=$(printf '%s\n' DP1.20120.001_all.rds DP1.20120.001_fetch_evidence.json DP1.20120.001_source_receipt.json | LC_ALL=C sort)
+          else
+            expected=$(printf '%s\n' DP1.20120.001_all.rds DP1.20120.001_fetch_evidence.json | LC_ALL=C sort)
+          fi
+          actual=$(find "$source_stage" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Raw fetch artifact members differ from the exact conditional allowlist."
+            diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+            exit 1
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload raw fetch evidence and authority when available
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.skip_download == false && steps.source_stage.outputs.ready == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: invert-source-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/invert-source/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Bundle the exact 34-site product (manual only)
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.skip_download == false }}
+        timeout-minutes: 60
+        run: |
+          set -euo pipefail
+          rm -f data/sites/*.rds data/release_contract.rds data/source_receipt.json
+          rm -f data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds
           Rscript --vanilla scripts/build_inv_data.R
 
       - name: Verify and package the immutable producer bundle
         run: |
           set -euo pipefail
-          Rscript --vanilla -e 'expected <- c("ARIK","BARC","BIGC","BLDE","BLUE","BLWA","CARI","COMO","CRAM","CUPE","FLNT","GUIL","HOPB","KING","LECO","LEWI","LIRO","MART","MAYF","MCDI","MCRA","OKSR","POSE","PRIN","PRLA","PRPO","REDB","SUGG","SYCA","TECR","TOMB","TOOK","WALK","WLOU"); actual <- sort(sub("[.]rds$", "", basename(list.files("data/sites", pattern="^[A-Z0-9]{4}[.]rds$")))); stopifnot(identical(actual, expected)); idx <- readRDS("data/site_index.rds"); stopifnot(nrow(idx) == 34L, identical(sort(as.character(idx$site)), expected))'
+          Rscript --vanilla -e 'source("scripts/inv_release_verifier.R"); summary <- inv_verify_release_data("."); stopifnot(identical(summary$sites, 34L))'
           expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
-          site_paths=()
+          producer_paths=(data/release_contract.rds data/source_receipt.json)
           for site in "${expected_sites[@]}"; do
-            site_paths+=("data/sites/${site}.rds")
+            producer_paths+=("data/sites/${site}.rds")
           done
-          expected_inventory=$(printf '%s\n' "${site_paths[@]}" | LC_ALL=C sort)
+          expected_inventory=$(printf '%s\n' "${producer_paths[@]}" | grep '^data/sites/' | LC_ALL=C sort)
           actual_inventory=$(find data/sites -maxdepth 1 -type f -print | LC_ALL=C sort)
           if [[ "$actual_inventory" != "$expected_inventory" ]]; then
             echo "Producer site inventory differs from the exact release allowlist."
             diff <(printf '%s\n' "$expected_inventory") <(printf '%s\n' "$actual_inventory") || true
             exit 1
           fi
+          for path in data/release_contract.rds data/source_receipt.json; do
+            test -f "$path"
+          done
           git diff --check
-          tar -czf "$RUNNER_TEMP/invert-produced.tgz" "${site_paths[@]}"
+          tar -czf "$RUNNER_TEMP/invert-produced.tgz" "${producer_paths[@]}"
 
       - name: Upload producer candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -153,15 +217,20 @@ jobs:
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           r-version: "4.5.2"
+          cran: https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15
           use-public-rspm: false
 
+      # pak also exposes a moving CRAN fallback. Keep bslib on the dated 0.11.0
+      # source explicitly so a newer fallback-only release cannot enter the
+      # retained Connect manifest while the rest of the closure uses RSPM.
       - name: Install validator and runtime dependencies
         uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           packages: >
-            shiny, bslib, bsicons, dplyr, tibble, tidyr, stringr, rsconnect,
-            jsonlite, shinyjs, shinycssloaders, RColorBrewer, htmltools, cpp11,
+            shiny, bsicons, dplyr, tibble, tidyr, stringr, rsconnect,
+            jsonlite, digest, shinyjs, shinycssloaders, RColorBrewer, htmltools, cpp11,
             leaflet, DT,
+            url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/bslib_0.11.0.tar.gz,
             url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/plotly_4.12.0.tar.gz,
             url::https://cran.r-project.org/src/contrib/Archive/terra/terra_1.8-50.tar.gz,
             url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sf_1.1-1.tar.gz,
@@ -173,9 +242,12 @@ jobs:
             url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/sp_2.2-1.tar.gz
           pak-version: stable
           dependencies: '"hard"'
-          cache-version: invert-validator-geo-v2
+          cache-version: invert-validator-geo-bslib-v3
           install-pandoc: "false"
           install-quarto: "false"
+
+      - name: Verify the pinned UI dependency contract before candidate work
+        run: Rscript --vanilla scripts/check_loaded_app_contract.R
 
       - name: Download immutable producer candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -183,11 +255,19 @@ jobs:
           name: invert-produced-${{ env.SOURCE_SHA }}
           path: ${{ runner.temp }}/candidate
 
+      - name: Download exact raw source for independent validation
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_download == false }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: invert-source-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/source
+
       - name: Materialize candidate in the clean validator checkout
         run: |
           set -euo pipefail
           expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
-          expected_members=$(printf 'data/sites/%s.rds\n' "${expected_sites[@]}" | LC_ALL=C sort)
+          expected_members=$(printf 'data/sites/%s.rds\n' "${expected_sites[@]}"; printf '%s\n' data/release_contract.rds data/source_receipt.json)
+          expected_members=$(printf '%s\n' "$expected_members" | LC_ALL=C sort)
           actual_members=$(tar -tzf "$RUNNER_TEMP/candidate/invert-produced.tgz" | LC_ALL=C sort)
           if [[ "$actual_members" != "$expected_members" ]]; then
             echo "Producer artifact members differ from the exact site allowlist."
@@ -195,28 +275,81 @@ jobs:
             exit 1
           fi
           cp data/site_index.rds "$RUNNER_TEMP/committed-site-index.rds"
-          rm -f data/sites/*.rds
+          rm -f data/sites/*.rds data/release_contract.rds data/source_receipt.json
           tar -xzf "$RUNNER_TEMP/candidate/invert-produced.tgz"
 
-      - name: Independently rebuild derived data and deploy manifest
+      - name: Independently rebuild derived data and preliminary deploy manifest
         run: |
           set -euo pipefail
           Rscript --vanilla scripts/build_cross_site.R
           Rscript --vanilla scripts/build_search_index.R
-          Rscript --vanilla scripts/write_manifest.R
+          INV_MANIFEST_PHASE=prestamp Rscript --vanilla scripts/write_manifest.R
+
+      - name: Build and verify the exact Pages and Connect release identity
+        run: |
+          set -euo pipefail
+          Rscript --vanilla scripts/test_release_identity.R
+          bash scripts/test_post_deploy_smoke.sh
+          INV_RELEASE_IDENTITY_MODE=write INV_WRITE_PAGES_RELEASE=1 Rscript --vanilla scripts/write_release_identity.R
+          INV_MANIFEST_PHASE=final Rscript --vanilla scripts/write_manifest.R
+          INV_RELEASE_IDENTITY_MODE=verify INV_WRITE_PAGES_RELEASE=1 Rscript --vanilla scripts/write_release_identity.R
+          cmp -s release/production-identity.json docs/release.json
+
+      - name: Reject a stale committed identity on pull requests
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          identity_paths=(manifest.json release/production-identity.json docs/release.json)
+          for path in "${identity_paths[@]}"; do
+            git ls-files --error-unmatch "$path" >/dev/null
+          done
+          git diff --exit-code -- "${identity_paths[@]}"
+
+      - name: Independently reconcile the full-fetch source to the candidate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_download == false }}
+        env:
+          RAW_SOURCE: ${{ runner.temp }}/source/DP1.20120.001_all.rds
+          RAW_EVIDENCE: ${{ runner.temp }}/source/DP1.20120.001_fetch_evidence.json
+          RAW_RECEIPT: ${{ runner.temp }}/source/DP1.20120.001_source_receipt.json
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s\n' DP1.20120.001_all.rds DP1.20120.001_fetch_evidence.json DP1.20120.001_source_receipt.json | LC_ALL=C sort)
+          actual=$(find "$RUNNER_TEMP/source" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Raw source artifact members differ from the exact allowlist."
+            diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+            exit 1
+          fi
+          Rscript --vanilla -e 'source("scripts/inv_source_contract.R", local = TRUE); inv_verify_fetch_source_handoff(Sys.getenv("RAW_SOURCE"), Sys.getenv("RAW_EVIDENCE"), Sys.getenv("RAW_RECEIPT"))'
+          Rscript --vanilla -e 'source("scripts/inv_release_verifier.R", local = TRUE); inv_verify_release_against_source(".", Sys.getenv("RAW_SOURCE"), Sys.getenv("RAW_RECEIPT"))'
+
+      - name: Verify the static and in-app Living Poster contract
+        run: |
+          set -euo pipefail
+          node --check scripts/check_cover.mjs
+          node --check scripts/post_deploy_browser.mjs
+          node scripts/check_cover.mjs
 
       - name: Verify the exact release candidate
         run: |
           set -euo pipefail
+          Rscript --vanilla scripts/test_inv_source_contract.R
+          Rscript --vanilla scripts/test_inv_science_contract.R
+          Rscript --vanilla scripts/test_inv_producer.R
+          Rscript --vanilla scripts/test_inv_release_verifier.R
+          Rscript --vanilla scripts/check_loaded_app_contract.R
           Rscript --vanilla scripts/verify_refresh_candidate.R "$RUNNER_TEMP/committed-site-index.rds"
           Rscript --vanilla -e 'source("global.R"); source("ui.R"); candidate <- source("server.R")$value; stopifnot(inherits(ui, "shiny.tag.list") || inherits(ui, "shiny.tag"), is.function(candidate))'
+          node --check www/app.js
+          node --check scripts/check_custom_message_handlers.mjs
+          node scripts/check_custom_message_handlers.mjs
           git diff --check
 
       - name: Package immutable validated candidate
         run: |
           set -euo pipefail
           expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
-          release_paths=(data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds manifest.json)
+          release_paths=(data/release_contract.rds data/source_receipt.json data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds release/production-identity.json docs/release.json manifest.json)
           for site in "${expected_sites[@]}"; do
             release_paths+=("data/sites/${site}.rds")
           done
@@ -271,7 +404,7 @@ jobs:
             exit 1
           fi
           expected_sites=(ARIK BARC BIGC BLDE BLUE BLWA CARI COMO CRAM CUPE FLNT GUIL HOPB KING LECO LEWI LIRO MART MAYF MCDI MCRA OKSR POSE PRIN PRLA PRPO REDB SUGG SYCA TECR TOMB TOOK WALK WLOU)
-          release_paths=(data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds manifest.json)
+          release_paths=(data/release_contract.rds data/source_receipt.json data/site_index.rds data/cross_site.rds data/search_index.rds data-sample/demo.rds release/production-identity.json docs/release.json manifest.json)
           for site in "${expected_sites[@]}"; do
             release_paths+=("data/sites/${site}.rds")
           done

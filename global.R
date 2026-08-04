@@ -1,14 +1,9 @@
 # ===========================================================================
 # NEON My Little Inverts — global.R
-# A NEONize sibling (Desert Data Labs) for the benthic Macroinvertebrate
-# collection (DP1.20120.001). Chrome + bundling spine + pin-card interaction
-# ported from the prior siblings (Mosquito Pulse is the v2 reference); the
-# analysis layer is benthic-invertebrate native.
-#
-# Honesty grain: the abundance axis is DENSITY (individuals / m2), a WITHIN-SITE
-# standardized density index, never an absolute population. There is NO biotic
-# index / IBI / pass-fail — NEON aquatic sites have no calibrated reference
-# condition. Lakes are naturally EPT-poor; low EPT is not impairment.
+# A field-first explorer for NEON DP1.20120.001. The loaded app accepts only the
+# reviewed Pass-9 bundle family. Metrics retain their exact event, water type,
+# habitat, and sampler stratum; the cross-site table contains effort and record
+# counts only.
 # ===========================================================================
 suppressPackageStartupMessages({
   library(shiny); library(bslib); library(bsicons)
@@ -21,6 +16,9 @@ source("R/inv_helpers.R",   local = FALSE)
 source("R/report_pdf.R",    local = FALSE)
 
 NEON_DPID <- "DP1.20120.001"   # Macroinvertebrate collection
+NEON_RELEASE <- "RELEASE-2026"
+NEON_DOI <- "10.48443/hp56-s582"
+APP_RELEASE_MARKER <- "my-little-inverts-release-2026-v1"
 # neonUtilities is referenced by a COMPUTED name so the rsconnect static scan
 # never pins it into the manifest (the deploy is bundle-only + lean; no live fetch).
 .NEON_PKG <- paste0("neon", "Utilities")
@@ -30,38 +28,225 @@ SITE_DIR  <- "data/sites"
 DEMO_PATH <- "data-sample/demo.rds"
 DEMO_META <- list(site = "SYCA", label = "SYCA · Sycamore Creek · demo")
 
-# read_bundle(): defensive — NULL on missing/corrupt or an empty bundle, never
-# crash boot. A valid invert bundle is a list carrying non-empty $bouts.
-read_bundle <- function(f) {
-  if (!file.exists(f)) return(NULL)
-  out <- tryCatch(readRDS(f), error = function(e) { warning(sprintf("read_bundle('%s'): %s", f, conditionMessage(e))); NULL })
-  if (is.null(out) || is.null(out$bouts) || !nrow(out$bouts)) NULL else out
+# One deterministic identity binds the reviewed source receipt/artifact, exact
+# bundle-hash family, derived indexes, runtime and Pages bytes, and canonical
+# Connect manifest contract. It is generated only by the clean validator and is
+# exposed in the initial Shiny HTML for content-aware production verification.
+RELEASE_IDENTITY_PATH <- "release/production-identity.json"
+RELEASE_IDENTITY <- tryCatch(
+  jsonlite::fromJSON(RELEASE_IDENTITY_PATH, simplifyVector = FALSE),
+  error = function(error) {
+    stop("Cannot read deterministic production identity: ",
+         conditionMessage(error), call. = FALSE)
+  }
+)
+identity_chr <- function(field) {
+  value <- RELEASE_IDENTITY[[field]]
+  if (is.null(value) || length(value) != 1L || is.na(value)) "" else
+    as.character(value)
 }
-load_site_bundle <- function(site) read_bundle(file.path(SITE_DIR, paste0(site, ".rds")))
-load_demo <- function() { b <- load_site_bundle(DEMO_META$site); if (!is.null(b)) b else read_bundle(DEMO_PATH) }
+identity_fields <- c(
+  "schema_version", "app_id", "product", "release", "doi",
+  "source_artifact_sha256", "source_receipt_sha256",
+  "release_contract_sha256", "bundle_family_sha256", "site_index_sha256",
+  "cross_site_sha256", "search_index_sha256", "demo_bundle_sha256",
+  "runtime_payload_sha256", "pages_payload_sha256",
+  "manifest_contract_sha256", "manifest_source_list_sha256", "release_id"
+)
+identity_hash_fields <- identity_fields[6:17]
+if (!identical(names(RELEASE_IDENTITY), identity_fields) ||
+    !identical(as.integer(RELEASE_IDENTITY$schema_version), 1L) ||
+    !identical(identity_chr("app_id"), "NEON-My-Little-Inverts") ||
+    !identical(identity_chr("product"), NEON_DPID) ||
+    !identical(identity_chr("release"), NEON_RELEASE) ||
+    !identical(identity_chr("doi"), NEON_DOI) ||
+    !all(vapply(identity_hash_fields, function(field) {
+      grepl("^[0-9a-f]{64}$", identity_chr(field))
+    }, logical(1)))) {
+  stop("Production identity does not match the app release contract.",
+       call. = FALSE)
+}
+release_identity_material <- c(
+  "neon-my-little-inverts-production-instance-v1",
+  vapply(identity_fields[2:17], identity_chr, character(1))
+)
+RELEASE_INSTANCE_ID <- paste0(
+  "sha256:", digest::digest(
+    paste(release_identity_material, collapse = "\n"),
+    algo = "sha256", serialize = FALSE
+  )
+)
+if (!identical(identity_chr("release_id"), RELEASE_INSTANCE_ID)) {
+  stop("Production release ID does not re-derive from its identity fields.",
+       call. = FALSE)
+}
 
-SITE_INDEX <- tryCatch(readRDS("data/site_index.rds"), error = function(e) NULL)
-CROSS_SITE <- tryCatch(readRDS("data/cross_site.rds"), error = function(e) SITE_INDEX)
-BUNDLED <- if (!is.null(SITE_INDEX)) SITE_INDEX$site else character(0)
+# A corrupt, stale, or legacy bundle never reaches the reactive app. Validation
+# returns NULL with a diagnostic rather than attempting a compatibility guess.
+read_bundle <- function(f, expected_site = NULL, expected_sha256 = NULL,
+                        release_contract = NULL) {
+  if (!file.exists(f)) return(NULL)
+  if (!is.null(expected_sha256)) {
+    hash_check <- inv_verify_file_sha256(f, expected_sha256)
+    if (!isTRUE(hash_check)) {
+      warning(sprintf("read_bundle('%s'): %s", f,
+                      inv_contract_reason(hash_check)))
+      return(NULL)
+    }
+  }
+  out <- tryCatch(
+    readRDS(f),
+    error = function(e) {
+      warning(sprintf("read_bundle('%s'): %s", f, conditionMessage(e)))
+      NULL
+    }
+  )
+  if (is.null(out)) return(NULL)
+  checked <- inv_validate_bundle(
+    out, expected_site = expected_site, release_contract = release_contract
+  )
+  if (!isTRUE(checked)) {
+    warning(sprintf("read_bundle('%s'): %s", f, inv_contract_reason(checked)))
+    return(NULL)
+  }
+  out
+}
+load_site_bundle <- function(site) {
+  if (!isTRUE(release_contract_ok) || length(site) != 1L ||
+      is.na(site) || !site %in% as.character(RELEASE_CONTRACT$site_ids)) {
+    return(NULL)
+  }
+  expected_hash <- RELEASE_CONTRACT$bundle_sha256[[site]]
+  read_bundle(
+    file.path(SITE_DIR, paste0(site, ".rds")), expected_site = site,
+    expected_sha256 = expected_hash,
+    release_contract = RELEASE_CONTRACT
+  )
+}
+load_demo <- function() {
+  if (!isTRUE(release_contract_ok)) return(NULL)
+  b <- load_site_bundle(DEMO_META$site)
+  if (!is.null(b)) return(b)
+  expected_hash <- RELEASE_CONTRACT$bundle_sha256[[DEMO_META$site]]
+  read_bundle(
+    DEMO_PATH, expected_site = DEMO_META$site,
+    expected_sha256 = expected_hash,
+    release_contract = RELEASE_CONTRACT
+  )
+}
+
+read_app_rds <- function(path) {
+  tryCatch(readRDS(path), error = function(e) {
+    warning(sprintf("readRDS('%s'): %s", path, conditionMessage(e)))
+    NULL
+  })
+}
+
+identity_file_contract <- c(
+  "data/release_contract.rds" = identity_chr("release_contract_sha256"),
+  "data/source_receipt.json" = identity_chr("source_receipt_sha256"),
+  "data/site_index.rds" = identity_chr("site_index_sha256"),
+  "data/cross_site.rds" = identity_chr("cross_site_sha256"),
+  "data/search_index.rds" = identity_chr("search_index_sha256"),
+  "data-sample/demo.rds" = identity_chr("demo_bundle_sha256")
+)
+for (path in names(identity_file_contract)) {
+  identity_file_check <- inv_verify_file_sha256(
+    path, unname(identity_file_contract[[path]])
+  )
+  if (!isTRUE(identity_file_check)) {
+    stop("Production release file differs from its identity: ", path, " (",
+         inv_contract_reason(identity_file_check), ")", call. = FALSE)
+  }
+}
+
+RELEASE_CONTRACT <- read_app_rds("data/release_contract.rds")
+release_contract_check <- inv_validate_release_contract(
+  RELEASE_CONTRACT, expected_sites = as.character(neon_sites$site)
+)
+release_contract_ok <- isTRUE(release_contract_check)
+if (release_contract_ok) {
+  bundle_entries <- paste(
+    as.character(RELEASE_CONTRACT$site_ids),
+    as.character(RELEASE_CONTRACT$bundle_sha256), sep = "\t"
+  )
+  bundle_material <- paste0(paste(bundle_entries, collapse = "\n"), "\n")
+  bundle_family_sha256 <- unname(digest::digest(
+    paste("neon-inverts-bundle-family-v1", bundle_material, sep = "\n"),
+    algo = "sha256", serialize = FALSE
+  ))
+  if (!identical(
+    as.character(RELEASE_CONTRACT$source$artifact_sha256),
+    identity_chr("source_artifact_sha256")
+  ) || !identical(
+    as.character(RELEASE_CONTRACT$source$receipt_sha256),
+    identity_chr("source_receipt_sha256")
+  ) || !identical(bundle_family_sha256,
+                  identity_chr("bundle_family_sha256"))) {
+    release_contract_check <- inv_contract_result(
+      FALSE, "release contract differs from the production identity"
+    )
+    release_contract_ok <- FALSE
+  }
+}
+if (release_contract_ok) {
+  receipt_check <- inv_verify_file_sha256(
+    "data/source_receipt.json", RELEASE_CONTRACT$source$receipt_sha256
+  )
+  if (!isTRUE(receipt_check)) {
+    release_contract_check <- receipt_check
+    release_contract_ok <- FALSE
+  }
+}
+if (!release_contract_ok) {
+  warning(sprintf(
+    "Pass-9 release contract is missing or invalid; bundled data are disabled: %s",
+    inv_contract_reason(release_contract_check)
+  ))
+}
+
+SITE_INDEX <- if (release_contract_ok) read_app_rds("data/site_index.rds") else NULL
+site_index_ok <- inv_validate_site_index(
+  SITE_INDEX, if (release_contract_ok) RELEASE_CONTRACT else NULL
+)
+if (!isTRUE(site_index_ok)) {
+  if (!is.null(SITE_INDEX)) warning(inv_contract_reason(site_index_ok))
+  SITE_INDEX <- NULL
+}
+BUNDLED <- if (!is.null(SITE_INDEX)) {
+  roster <- as.character(RELEASE_CONTRACT$site_ids)
+  if (!identical(as.character(SITE_INDEX$site), roster)) {
+    warning("site_index roster/order differs from the release contract")
+    character(0)
+  } else roster
+} else character(0)
 
 # ---------------------------------------------------------------------------
-# "Search the network" index — one small precomputed .rds loaded ONCE at boot
-# (built by scripts/build_search_index.R from the committed bundles, never a live
-# fetch). $taxa = tidy one-row-per-(taxon, site) occurrence table; $sites = the
-# site-level metric table for the threshold query. Searches filter this in
-# memory, so the fast bundled load is preserved.
+# The search index carries exact-stratum taxon support rows and the same
+# effort/records-only site table. It is disabled if either contract is stale.
 # ---------------------------------------------------------------------------
-SEARCH_INDEX <- tryCatch(readRDS("data/search_index.rds"), error = function(e) NULL)
-SEARCH_TAXA  <- if (!is.null(SEARCH_INDEX)) SEARCH_INDEX$taxa  else NULL
-SEARCH_SITES <- if (!is.null(SEARCH_INDEX)) SEARCH_INDEX$sites else NULL
+SEARCH_INDEX <- if (length(BUNDLED)) read_app_rds("data/search_index.rds") else NULL
+search_index_ok <- inv_validate_search_index(
+  SEARCH_INDEX,
+  if (release_contract_ok) RELEASE_CONTRACT else NULL,
+  SITE_INDEX
+)
+if (!isTRUE(search_index_ok)) {
+  if (!is.null(SEARCH_INDEX)) warning(inv_contract_reason(search_index_ok))
+  SEARCH_INDEX <- NULL
+}
+SEARCH_TAXA <- if (!is.null(SEARCH_INDEX)) SEARCH_INDEX$taxa else NULL
 
 # the autocomplete vocabulary: one entry per distinct taxon (display -> code-ish
-# key uses the scientificName itself; EPT-flagged in the label so the user sees it)
+# key uses the scientificName itself; EPT is a descriptive taxonomic grouping)
 search_taxon_choices <- function() {
   if (is.null(SEARCH_TAXA) || !nrow(SEARCH_TAXA)) return(NULL)
-  u <- SEARCH_TAXA[!duplicated(SEARCH_TAXA$scientificName), c("scientificName","is_ept","order")]
+  u <- SEARCH_TAXA[
+    !duplicated(SEARCH_TAXA$scientificName),
+    c("scientificName", "taxonRank", "is_ept", "order")
+  ]
   u <- u[order(u$scientificName), ]
-  lab <- ifelse(u$is_ept, paste0(u$scientificName, "  · EPT"), u$scientificName)
+  lab <- inv_taxon_label(u$scientificName, u$taxonRank, u$is_ept)
   setNames(u$scientificName, lab)
 }
 
@@ -69,26 +254,14 @@ search_taxon_choices <- function() {
 # bundle's meta$name is NA-filled at build time, so the app supplies it here.
 site_table <- if (length(BUNDLED)) {
   m <- neon_sites[match(BUNDLED, neon_sites$site), ]
-  keep <- intersect(c("lat","lng","aquaticSiteType","n_bouts","n_samples","richness","ept_richness",
-                      "pct_ept_ind","density_m2","hill_q1","rarefied_richness","top_taxon"), names(SITE_INDEX))
-  out <- cbind(m, SITE_INDEX[match(m$site, SITE_INDEX$site), keep])
+  keep <- setdiff(INV_SITE_INDEX_COLUMNS, "site")
+  out <- cbind(m, SITE_INDEX[match(m$site, SITE_INDEX$site), keep, drop = FALSE])
   # fall back to the index's aquaticSiteType where the metadata table is missing one
   out$type <- ifelse(is.na(out$type), out$aquaticSiteType, out$type)
   out[order(out$name), ]
 } else neon_sites[0, ]
 
 NO_DATA <- is.null(SITE_INDEX) || !length(BUNDLED) || !nrow(site_table)
-
-# ---------------------------------------------------------------------------
-# EPT_CELEBRATE_THRESHOLD — the honesty bar for the (leashed) celebration.
-# Confetti fires AT MOST ONCE per session, ONLY for a STREAM/RIVER site (lakes are
-# EPT-poor by nature, so celebrating low EPT there is dishonest + off-brand) whose
-# %EPT clears this bar. The value is data-derived: the 75th percentile of
-# pct_ept_ind across the 27 bundled stream/river sites is 34.8% (median 28.4);
-# rounding to 34 captures 8 of 27 ≈ the network top quartile. Re-derive any time:
-#   sr <- SITE_INDEX[SITE_INDEX$aquaticSiteType %in% c("stream","river"),]
-#   quantile(sr$pct_ept_ind, 0.75, na.rm = TRUE)   # -> 34.8
-EPT_CELEBRATE_THRESHOLD <- 34
 
 # state choices for the by-name select panel
 inv_state_choices <- function() {
@@ -102,7 +275,7 @@ inv_sites_in_state <- function(stt) {
 }
 
 # ---------------------------------------------------------------------------
-# "Riffle & Teal" palette (Vera). A clean water-teal/aqua primary on a cool
+# "Riffle & Teal" palette (Vera). A water-teal/aqua primary on a cool
 # paper page, a kingfisher-blue secondary, and a reserved coral for the high QC
 # flag. OLD key names (navy / cardinal / gold / sky / green) are kept and
 # REMAPPED so the shared chrome (server.R's DDL$… references, styles.css token
@@ -120,20 +293,13 @@ DDL <- list(
   green = "#3f9e6e", green2 = "#2f7d56", terra = "#0e8f9c", rust = "#0e8f9c")
 
 # ---- LOCKED DATA palettes (data, never theme; never read from var(--…)) ----
-# EPT vs other — the headline composition encoding. EPT (sensitive groups) owns
-# the brand teal; everything else is a neutral slate.
+# EPT vs other — a descriptive taxonomic grouping, never a condition class.
 EPT_COL <- c(EPT = "#0e8f9c", other = "#94a7ad")
 ept_col <- function(c) { out <- unname(EPT_COL[c]); ifelse(is.na(out), unname(EPT_COL["other"]), out) }
 # aquatic site type — the picker-map + cross-site colour. Fixed legend order.
 TYPE_COL <- c(stream = "#0e8f9c", river = "#2f7daa", lake = "#5a8f3e")
 type_col <- function(t) { out <- unname(TYPE_COL[t]); ifelse(is.na(out), "#94a7ad", out) }
 TYPE_LAB <- c(stream = "Stream", river = "River", lake = "Lake")
-# composition stack — EPT teal, midge amber, worm dark-brown, other slate.
-# The two tolerant groups are split by LIGHTNESS (amber vs deep saddle-brown),
-# not just hue, so the midge/worm boundary survives deutan/protan CVD in the
-# stacked band (a same-hue amber/rust pair washed out). (Vera)
-COMP_COL <- c(EPT = "#0e8f9c", Chironomidae = "#e6b035", Oligochaeta = "#8a5a2b", other = "#aab9bd")
-comp_col <- function(c) { out <- unname(COMP_COL[c]); ifelse(is.na(out), "#aab9bd", out) }
 
 # Rubik is named as a PLAIN CSS font-family here (a bslib font_collection of bare
 # strings), NOT font_google("Rubik"). font_google() defaults to local = TRUE, which
@@ -173,7 +339,7 @@ fmt_int <- function(x) format(round(as.numeric(x)), big.mark = ",", trim = TRUE)
 SUITE_REGISTRY <- list(
   list(name = "Small Mammal Tracker",  emoji = "\U0001F42D", tag = "tagged rodents, mark-recapture", dpid = "DP1.10072.001", url = "https://tgilbert14.github.io/NEON-Small-Mammal-Tracker-App/"),
   list(name = "Plant Diversity",       emoji = "\U0001F33F", tag = "plots, richness, expected-vs-observed", dpid = "DP1.10058.001", url = "https://tgilbert14.github.io/NEON-Plant-Diversity/"),
-  list(name = "Breeding Birds",        emoji = "\U0001F426", tag = "point counts, rarefied richness", dpid = "DP1.10003.001", url = "https://tgilbert14.github.io/NEON-Breeding-Birds/"),
+  list(name = "Breeding Birds",        emoji = "\U0001F426", tag = "point counts and community records", dpid = "DP1.10003.001", url = "https://tgilbert14.github.io/NEON-Breeding-Birds/"),
   list(name = "Plant Phenology",       emoji = "\U0001F33C", tag = "leaf-out and flowering timing", dpid = "DP1.10055.001", url = "https://tgilbert14.github.io/NEON-Plant-Phenology-Explorer/"),
   list(name = "Vegetation Structure",  emoji = "\U0001F332", tag = "tree size, basal area, standing stock", dpid = "DP1.10098.001", url = "https://tgilbert14.github.io/NEON-Vegetation-Structure-Explorer/"),
   list(name = "Ground Beetle Tracker", emoji = "\U0001FAB2", tag = "pitfall carabids by site", dpid = "DP1.10022.001", url = "https://tgilbert14.github.io/NEON-Ground-Beetle-Tracker/"),

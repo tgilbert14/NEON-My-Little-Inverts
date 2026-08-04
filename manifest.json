@@ -394,13 +394,10 @@
         "Maintainer": "Carson Sievert <carson@posit.co>",
         "Repository": "RSPM",
         "Date/Publication": "2026-05-16 08:10:07 UTC",
-        "Built": "R 4.5.0; ; 2026-05-17 05:05:43 UTC; unix",
-        "RemoteType": "standard",
-        "RemotePkgRef": "bslib",
-        "RemoteRef": "bslib",
-        "RemoteRepos": "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15",
-        "RemotePkgPlatform": "x86_64-pc-linux-gnu-ubuntu-22.04",
-        "RemoteSha": "0.11.0"
+        "RemotePkgRef": "url::https://packagemanager.posit.co/cran/2026-07-15/src/contrib/bslib_0.11.0.tar.gz",
+        "RemoteType": "url",
+        "RemoteEtag": "\"8c4d98ede0ba9f65ef9713e0ed3828e2\"",
+        "RemotePackaged": "TRUE"
       }
     },
     "cachem": {
@@ -3101,148 +3098,169 @@
   },
   "files": {
     "data-sample/demo.rds": {
-      "checksum": "30bd78623a658785bfa24d3d283e3b72"
+      "checksum": "f1e115fc5498ad2fb91045d8bc08e30b"
     },
     "data/cross_site.rds": {
-      "checksum": "0ce4681ca86aaef67581a1c6069716fc"
+      "checksum": "80c15dfb9d3cdc792d40f048807ba050"
+    },
+    "data/release_contract.rds": {
+      "checksum": "357b345a07d137fbc25cd198c170c8d5"
     },
     "data/search_index.rds": {
-      "checksum": "1b5a4ba52901198db7c35bd3bbb666d2"
+      "checksum": "dbc76c2b6f83c8c5dd6d86d7095d3774"
     },
     "data/site_index.rds": {
-      "checksum": "0ce4681ca86aaef67581a1c6069716fc"
+      "checksum": "80c15dfb9d3cdc792d40f048807ba050"
     },
     "data/sites/ARIK.rds": {
-      "checksum": "4814679a0e014e78298983e826b5b520"
+      "checksum": "3c8ba0b9e94a1b774ae3850c1e37c6d2"
     },
     "data/sites/BARC.rds": {
-      "checksum": "afd9347d9fdc1b0d658423ad5c5b845b"
+      "checksum": "fc632cb4e7f10bc19d5c200556b27f5e"
     },
     "data/sites/BIGC.rds": {
-      "checksum": "c4f4945be5a2cd111d8632b983024627"
+      "checksum": "9cbd46bc51f055b447b5d06e996b9dff"
     },
     "data/sites/BLDE.rds": {
-      "checksum": "9f65057e07891ef8c9e4471915f643f7"
+      "checksum": "940cfc6c6e7a6ed6e3f149b8cbc5a81d"
     },
     "data/sites/BLUE.rds": {
-      "checksum": "04c57bb396d4b88079cd857376efd94a"
+      "checksum": "e5272eec007bdfa9bd9a2fd39e57767d"
     },
     "data/sites/BLWA.rds": {
-      "checksum": "b2e5afb51ad889210cb70014276ee6b3"
+      "checksum": "fc1dafbb1f40b137ac35b02dbccab0ed"
     },
     "data/sites/CARI.rds": {
-      "checksum": "d5a477d2923d562a5635e46d82ad86e4"
+      "checksum": "90cd8107ab324d63c46ea34135380272"
     },
     "data/sites/COMO.rds": {
-      "checksum": "fc9747aa62848ba0d928f61432ea6e9f"
+      "checksum": "8e6afa0b1a09ac9dd944431fba1fc24e"
     },
     "data/sites/CRAM.rds": {
-      "checksum": "b086409fc0bcedf61d5b851a7c840e85"
+      "checksum": "e8be7d8f85db2cc0eae764f409787f98"
     },
     "data/sites/CUPE.rds": {
-      "checksum": "70125545811c80c87c8571a8198aae2a"
+      "checksum": "2d9373a7baeaf60d14cee0a1ae80d229"
     },
     "data/sites/FLNT.rds": {
-      "checksum": "020fb110c14cf8325b470025cc34603a"
+      "checksum": "4b867adfd026003555db6d63463703af"
     },
     "data/sites/GUIL.rds": {
-      "checksum": "1bbb5f139f8fbcb8adc33d85c743dabb"
+      "checksum": "256cc5b5ab1a4136c64474b4009bfff1"
     },
     "data/sites/HOPB.rds": {
-      "checksum": "ee3f6dd07dd8334c1608f9e06777f95a"
+      "checksum": "e23c0ca33f76547a8eb14c91a3c177e8"
     },
     "data/sites/KING.rds": {
-      "checksum": "fba05d5ca0a062d0d95476251bdb8d44"
+      "checksum": "862a6513e7a16d2648a4beba60e8b0c7"
     },
     "data/sites/LECO.rds": {
-      "checksum": "e3aa56d51452674e16220fd2d6991e4c"
+      "checksum": "4cd9d2b4289216092c8085bbb486f534"
     },
     "data/sites/LEWI.rds": {
-      "checksum": "b0f698bc6afdbdee93e15e078ee5dcf7"
+      "checksum": "a9bd259ac80574d9609c5dd17b007c7a"
     },
     "data/sites/LIRO.rds": {
-      "checksum": "1a1eaecccf1c5ab285dc21507cae580c"
+      "checksum": "e2a678ddd1f315d71d9e20a836f24120"
     },
     "data/sites/MART.rds": {
-      "checksum": "e54c604ba71ddb97c979ffee23f81e2d"
+      "checksum": "9a453230cfad3d41706ffdfeb8d2287a"
     },
     "data/sites/MAYF.rds": {
-      "checksum": "eb1362150c288685b90cc89dc384918f"
+      "checksum": "7424b2faf50ad562e391fe44f654ef0c"
     },
     "data/sites/MCDI.rds": {
-      "checksum": "00fa9f6d10b7c010bd8492e71c2b300d"
+      "checksum": "cdf0c2ae72a69413bec0ffcaa86d83bf"
     },
     "data/sites/MCRA.rds": {
-      "checksum": "684d0a4f9abf1026b68ee145bbc1c819"
+      "checksum": "c93b010e78587ebcb957c07d64a229f0"
     },
     "data/sites/OKSR.rds": {
-      "checksum": "c020877250ad66f6fed1184a992aab1d"
+      "checksum": "86b3b00fe57f9bd37304a63bcf2a8bd8"
     },
     "data/sites/POSE.rds": {
-      "checksum": "7b6367a8d2938b0f60daa1ac1e681ced"
+      "checksum": "28d08c0354a84d0cf3529ecb30929490"
     },
     "data/sites/PRIN.rds": {
-      "checksum": "0803a8b2d18bcd0a11ad7afd7e4839fa"
+      "checksum": "b56869d3905aa13247691c02d21b2ee9"
     },
     "data/sites/PRLA.rds": {
-      "checksum": "d539bad94d5cbd354cc5cbca803210dc"
+      "checksum": "3a68533ac5e3b110fee7724bf3385903"
     },
     "data/sites/PRPO.rds": {
-      "checksum": "2aedb0578cbfb248be3faddb7ce9a499"
+      "checksum": "b090826388c5d402a655852cf7da2e1d"
     },
     "data/sites/REDB.rds": {
-      "checksum": "d2c1561167080fbe27561408ac5767e4"
+      "checksum": "0c84f4919b09ee011235af44e5d06055"
     },
     "data/sites/SUGG.rds": {
-      "checksum": "01607892fd8d9ea91d35059a4eb09685"
+      "checksum": "fc1a66f708ed87fd906dc03273ff4108"
     },
     "data/sites/SYCA.rds": {
-      "checksum": "30bd78623a658785bfa24d3d283e3b72"
+      "checksum": "f1e115fc5498ad2fb91045d8bc08e30b"
     },
     "data/sites/TECR.rds": {
-      "checksum": "dd088d65b7900ac9eeb06fb9b24a3439"
+      "checksum": "d0f227776b1478e1019028064a3b8156"
     },
     "data/sites/TOMB.rds": {
-      "checksum": "05e58ad7e13fe02dd44a44402084921b"
+      "checksum": "e949b7d4effb029b5ffbafe5fd444b39"
     },
     "data/sites/TOOK.rds": {
-      "checksum": "425e4f471f348db20633785884e60daa"
+      "checksum": "d4ac9f333c2825d3ba4089bbd887cdc2"
     },
     "data/sites/WALK.rds": {
-      "checksum": "28a8ba1b19f9e2cbca0454c0e2d10260"
+      "checksum": "67d754b6fe3a29a719c211fbeab3ac99"
     },
     "data/sites/WLOU.rds": {
-      "checksum": "cd29550c43b193feedd1026d9d4fa60b"
+      "checksum": "e3ddfd656f468ffe67bb40e1ee7b8ab8"
+    },
+    "data/source_receipt.json": {
+      "checksum": "aed1f762810e7e251d4d4afc9ba77c5b"
     },
     "global.R": {
-      "checksum": "be2afcec8e45d570a27534a753bddc95"
+      "checksum": "e7784a83e8dbf7cb03874cef82373626"
     },
     "R/inv_helpers.R": {
-      "checksum": "0b0326a65c72fd029ce319c7358eef0b"
+      "checksum": "c1af3b39ab320fd7b9aaa5592eace4d3"
     },
     "R/report_pdf.R": {
-      "checksum": "b137e6b81660c9e08a950101ce1faef3"
+      "checksum": "157e085d658bf6c6441dbeb1af16bd7c"
     },
     "R/site_metadata.R": {
       "checksum": "c0ffd7ed477bce9c38e90d09338ee1a1"
     },
+    "release/production-identity.json": {
+      "checksum": "828753eaf102df594a7ea0e1065ed4ca"
+    },
     "server.R": {
-      "checksum": "dca86020418a166789c07c8180a34d3d"
+      "checksum": "acc1567c3f4726a50179cb40a42f354c"
     },
     "ui.R": {
-      "checksum": "d195683bb55368075e7d663c0b34b7e0"
+      "checksum": "77f73e273769daa789bb871cbb8d2f80"
     },
     "www/app.js": {
-      "checksum": "dd5987afee4017d9e2d4a36a2b7bf228"
+      "checksum": "1b45caea68fffbb579d9b39ff6fac63d"
+    },
+    "www/assets/inverts-living-poster-v2-840.webp": {
+      "checksum": "acfe353cf1c055fdd90e0359ae3c8e2d"
+    },
+    "www/assets/inverts-living-poster-v2.png": {
+      "checksum": "16ab18f789be014ef26a65bbdcaeee0d"
+    },
+    "www/assets/inverts-living-poster-v2.webp": {
+      "checksum": "e1acfd9d3aca6a89642dc5a076562e96"
     },
     "www/inverts.css": {
-      "checksum": "8e98963238a326e74d06915b89961531"
+      "checksum": "d36104daaa89eaecf70a743387d4f4c7"
     },
     "www/pincards.js": {
       "checksum": "2a1dedcb088e9ce45a9e2179ce520a87"
     },
+    "www/poster.css": {
+      "checksum": "66a2b4edc26ce06402e673c736852d1b"
+    },
     "www/styles.css": {
-      "checksum": "c61e0c7510b4aed72a592cecc909fe4f"
+      "checksum": "7daaa6415f512f9e9614f21edc83a670"
     }
   },
   "users": null

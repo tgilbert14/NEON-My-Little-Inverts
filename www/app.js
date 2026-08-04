@@ -1,5 +1,5 @@
 /* =========================================================================
-   app.js — count-up stat counters + celebratory confetti + loading overlay +
+   app.js — count-up stat counters + loading overlay + persisted site state +
    the multi-frame map "kick" (re-fit a Leaflet map that initialised hidden).
    Ported from the Mosquito Pulse v2 chrome; behaviour identical.
    ========================================================================= */
@@ -49,49 +49,10 @@ function invObserveCounters() {
 }
 invObserveCounters();
 
-// ---- confetti on a standout (a top EPT site, etc.) -----------------------
-function rodentConfetti(big) {
-  if (typeof confetti !== "function") return;
-  // Riffle & Teal palette (teal / aqua / green / amber / ink).
-  const colors = ["#0e8f9c", "#2bb7c4", "#3f9e6e", "#e08a2b", "#102a33"];
-  const burst = (opts) => confetti(Object.assign({ colors, disableForReducedMotion: true }, opts));
-  burst({ particleCount: big ? 140 : 70, spread: big ? 100 : 70, origin: { y: 0.3 }, startVelocity: 42 });
-  if (big) {
-    setTimeout(() => burst({ particleCount: 80, angle: 60, spread: 70, origin: { x: 0 } }), 180);
-    setTimeout(() => burst({ particleCount: 80, angle: 120, spread: 70, origin: { x: 1 } }), 320);
-  }
-  mascotCheer(big);
-}
-function mascotCheer(big) {
-  try {
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    var src = document.querySelector("#loadOverlay .mascot");
-    if (!src) return;
-    var wrap = document.createElement("div");
-    wrap.className = "mascot-cheer";
-    wrap.appendChild(src.cloneNode(true));
-    document.body.appendChild(wrap);
-    setTimeout(function () { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }, 1700);
-  } catch (e) {}
-}
-
-// ---- first-visit: the splash mascot waves hello once (localStorage-gated) ----
-document.addEventListener("DOMContentLoaded", function () {
-  try {
-    if (localStorage.getItem("invMascotSeen") === "1") return;
-    var g = document.querySelector(".splash-guide");
-    if (g) {
-      g.classList.add("wave");
-      localStorage.setItem("invMascotSeen", "1");
-      setTimeout(function () { g.classList.remove("wave"); }, 3300);
-    }
-  } catch (e) {}
-});
-
 // ---- restore-last-site + recents (ONE localStorage namespace) --------------
 // On (re)connect, hand the server the saved last-site code and the recents ring
 // so the one-shot startup resolver and the recents strip can read them. Same
-// localStorage round-trip the first-visit mascot uses above. Keys:
+// localStorage namespace is used for both values. Keys:
 //   invLastSite  : the single most-recent site code (the resume target)
 //   invRecents   : a comma-joined ring of the last few codes (newest first)
 // Both are WRITTEN in one place — the 'invSaveSite' handler below — so there is
@@ -165,7 +126,7 @@ document.addEventListener("keydown", function (e) {
 // execution past the DOMContentLoaded event, in which case a
 // `addEventListener("DOMContentLoaded", …)` callback never fires and EVERY
 // handler below would silently fail to register (this is exactly the bug that
-// left invSaveSite/confetti dead). Instead register as soon as `Shiny` exists,
+// left invSaveSite/kickMaps dead). Instead register as soon as `Shiny` exists,
 // polling briefly until it does.
 // Shiny's addCustomMessageHandler THROWS if a name is already registered, which
 // would abort the whole batch (leaving later handlers — invSaveSite, kickMaps —
@@ -179,11 +140,8 @@ function invRegisterHandlers() {
   if (!window.Shiny || !Shiny.addCustomMessageHandler) return false;
   window.__invHandlers = true;     // marker (not a guard — invAddH is per-handler idempotent)
   {
-    invAddH("countUp", function () {
+    invAddH("countUp", function (_msg) {
       setTimeout(runCounters, 60);
-    });
-    invAddH("confetti", function (msg) {
-      rodentConfetti(msg && msg.big);
     });
     // Persist the loaded site: writes BOTH localStorage keys (last-site + the
     // recents ring) in this ONE place. The server fires it on every successful
@@ -205,7 +163,7 @@ function invRegisterHandlers() {
         Shiny.setInputValue("invRecents", ring.join(","), { priority: "event" });
       } catch (e) {}
     });
-    invAddH("loadDone", function () { smtLoadDone(); });
+    invAddH("loadDone", function (_msg) { smtLoadDone(); });
     invAddH("smtLoadStart", function (msg) {
       smtLoadStart(msg && msg.label);
     });
@@ -214,7 +172,7 @@ function invRegisterHandlers() {
     // until it recomputes its size. Dispatching 'resize' over several frames
     // makes every Leaflet map invalidateSize. The server kicks this after
     // re-showing the splash and on relevant tab shows.
-    invAddH("kickMaps", function () {
+    invAddH("kickMaps", function (_msg) {
       var kick = function () {
         try { window.dispatchEvent(new Event("resize")); } catch (e) {}
         try {
