@@ -5,6 +5,7 @@
 .neon_token
 .vs/
 .vscode/
+node_modules/
 *.Rproj.bak
 
 # the raw NEON fetch lives one dir up and is NEVER committed (the app is

@@ -296,14 +296,14 @@ requireContract(/branches: \[main\]/.test(postDeployWorkflow)
 "content-aware post-deploy workflow is not wired to main");
 requireContract(npmPackage.private === true
   && npmPackage.scripts?.["check:cover"] === "node scripts/check_cover.mjs"
-  && npmPackage.devDependencies?.playwright === "1.55.0"
+  && npmPackage.devDependencies?.playwright === "1.62.1"
   && npmLock.lockfileVersion === 3
-  && npmLock.packages?.["node_modules/playwright"]?.version === "1.55.0"
+  && npmLock.packages?.["node_modules/playwright"]?.version === "1.62.1"
   && npmLock.packages?.["node_modules/playwright"]?.integrity
-    === "sha512-sdCWStblvV1YU909Xqx0DhOjPZE4/5lJsIS84IfN9dAZfcl/CIZ5O8l3o0j7hPMjDvqoTF8ZUcc+i/GL5erstA=="
-  && npmLock.packages?.["node_modules/playwright-core"]?.version === "1.55.0"
+    === "sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg=="
+  && npmLock.packages?.["node_modules/playwright-core"]?.version === "1.62.1"
   && npmLock.packages?.["node_modules/playwright-core"]?.integrity
-    === "sha512-GvZs4vU3U5ro2nZpeiwyb0zuFaqb9sUiAJuyrWpcGouD8y9/HLgGbNRjIph7zU9D3hnPaisMl9zG9CgFi/biIg==",
+    === "sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==",
 "post-deploy Playwright dependency tree is not version- and integrity-locked");
 requireContract(/ddl-release-instance/.test(postDeploySmoke)
   && /release\.json/.test(postDeploySmoke)
@@ -317,8 +317,14 @@ requireContract(/#nationalPicker/.test(postDeployBrowser)
   && /canonicalSites\.every/.test(postDeployBrowser)
   && /\.synth-banner/.test(postDeployBrowser)
   && /hasText: "SYCA"/.test(postDeployBrowser)
-  && /field opportunities/.test(postDeployBrowser)
-  && /value > 0/.test(postDeployBrowser)
+  && /const expectedSycaStats = \[/.test(postDeployBrowser)
+  && /label: "field opportunities", value: "193"/.test(postDeployBrowser)
+  && /label: "count-eligible", value: "121"/.test(postDeployBrowser)
+  && /label: "density-eligible", value: "121"/.test(postDeployBrowser)
+  && /label: "mixed-rank taxa recorded", value: "245"/.test(postDeployBrowser)
+  && /label: "collection events", value: "17"/.test(postDeployBrowser)
+  && /counter\?\.dataset\.target === value/.test(postDeployBrowser)
+  && /counter\.textContent\.trim\(\) === value/.test(postDeployBrowser)
   && /#help/.test(postDeployBrowser)
   && /How to read My Little Inverts/.test(postDeployBrowser)
   && /ddl-release-instance/.test(postDeployBrowser),
@@ -338,6 +344,15 @@ requireContract(/width: 1280, height: 900/.test(postDeployBrowser)
   && /requireKeyboardFocus/.test(postDeployBrowser)
   && /naturalWidth > 0/.test(postDeployBrowser),
   "post-deploy browser gate does not render-check Pages at desktop/390/320");
+requireContract(/const connectViewports = \[/.test(postDeployBrowser)
+  && /verifyConnectViewport/.test(postDeployBrowser)
+  && /page\.setViewportSize\(\{ width: viewport\.width, height: viewport\.height \}\)/.test(postDeployBrowser)
+  && /connectRendered\.mobileOrderBad/.test(postDeployBrowser)
+  && /connectRendered\.headerOverlap/.test(postDeployBrowser)
+  && /connectRendered\.posterAnimations/.test(postDeployBrowser)
+  && /requireKeyboardFocus\(page, "\.app-skip", "Connect 320px skip link"\)/.test(postDeployBrowser)
+  && /document\.activeElement\?\.id === "site-picker-start"/.test(postDeployBrowser),
+  "post-deploy browser gate does not render-check Connect at desktop/390/320 with keyboard skip focus");
 requireContract(/page\.on\("console"/.test(postDeployBrowser)
   && /page\.on\("pageerror"/.test(postDeployBrowser)
   && /page\.on\("requestfailed"/.test(postDeployBrowser)

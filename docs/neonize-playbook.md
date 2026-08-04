@@ -49,9 +49,12 @@ All joins and flags must be recomputable from primitive evidence.
 
 ### 4. Validate in a clean checkout
 
-The independent validator reconstructs derived indexes and manifest, verifies
-the raw-to-release handoff, checks the loaded app, creates the content identity,
-and repeats the release verifier. A producer success is not sufficient.
+Every independent-validator lane reconstructs derived indexes and manifest,
+validates the allowlisted producer/committed receipt-and-bundle family, checks
+the loaded app, creates the content identity, and repeats the release verifier.
+Only the manual full-fetch lane additionally receives immutable raw bytes and
+independently replays raw-to-release reconciliation. A producer success is not
+sufficient in either lane.
 
 ### 5. Publish only a review candidate
 
@@ -123,11 +126,13 @@ Before generating a candidate, update the identity-bound knowledge family:
 - `docs/DRIVER-KNOWLEDGE-PACKAGE.md` with reusable suite lessons and only facts
   already knowable before that candidate exists.
 
-After candidate creation, record candidate, PR, merge, Pages, Connect, and live
-round-trip receipts only in `docs/BUILD-TEST-HANDOFF.md` and the central Driver
-register. The exact handoff path is intentionally excluded from the release
-identity. Changing any other root `docs/*.md` changes the Pages payload hash and
-requires a newly generated identity and exact candidate.
+After the current change's candidate is created, record that candidate and its
+later PR, merge, Pages, Connect, and live-round-trip receipts only in
+`docs/BUILD-TEST-HANDOFF.md` and the central Driver register. The exact handoff
+path is intentionally excluded from the release identity. Changing any other
+root `docs/*.md` changes the Pages payload hash and requires a newly generated
+identity and exact candidate. Already closed ancestor candidate/PR facts may
+remain as lineage when they were knowable before the current change began.
 
 Do not copy this file into another app as its scientific plan. Carry the safety
 shape, then derive the other product's opportunity, grain, estimands, and edge

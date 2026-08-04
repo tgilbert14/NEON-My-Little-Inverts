@@ -1,16 +1,18 @@
 # My Little Inverts — Pass-9 expert review
 
-**Review date:** 2026-08-04  
-**Reviewed science head:** `6043c400afb21425d7c319e8225b9693fae416da`  
-**Current publication head:** `a685e01c61938fcbd49325d7cf365aa272fae58a`  
-**Scope:** source authority, estimand, denominators, edge cases, public claims,
-release reproducibility, and loaded-product behavior  
+- **Review date:** 2026-08-04
+- **Reviewed science head:** `6043c400afb21425d7c319e8225b9693fae416da`
+- **Current publication head:** `a685e01c61938fcbd49325d7cf365aa272fae58a`
+- **Scope:** source authority, estimand, denominators, edge cases, public claims,
+  release reproducibility, and loaded-product behavior
+
 **Decision:** the science implementation has no unresolved P0–P2 finding. A
 prior receipt-authoritative run failed safely at the final full-UI source gate;
 the corrected replacement run completed successfully through independent
 validation and restricted candidate publication. Its exact direct-child
-candidate passed human review, expected-head merge, Pages/Connect identity, and
-the live bidirectional Shiny production gate.
+candidate is independently validated. This identity-bound review intentionally
+does not carry later PR, merge, Pages, Connect, or live-production status; see
+the identity-excluded handoff and central Driver register.
 
 This is an app-local scientific/engineering review, not external peer review of
 NEON's data product or a validation of ecological condition inference.
@@ -188,12 +190,10 @@ and the release ID is
 `sha256:fcee160ddb5e6ecedbca84811dea57993263507bbb8c38570b5243d5d7644ee5`.
 
 Human-authored, non-draft [PR #6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6)
-has exact head `b7dffb6c1e149c52d094c4347483435df07856f6`. PR run
-`30888675725` completed successfully: gate, producer, validator, and PR-only
-stale-identity rejection are green; publisher is skipped with zero steps by
-design. Expected-head merge, exact Pages/Connect identity, and a live
-bidirectional Shiny probe subsequently passed. Exact mutable production
-identifiers are recorded only in `docs/BUILD-TEST-HANDOFF.md`.
+was opened at exact head `b7dffb6c1e149c52d094c4347483435df07856f6`.
+This identity-bound review stops at that knowable candidate/PR-head fact.
+Downstream check, merge, Pages, Connect, and live-production status belongs only
+in `docs/BUILD-TEST-HANDOFF.md` and the central Driver register.
 
 The first four GitHub full-fetch attempts failed safely before candidate
 publication. Those failures exposed volatile `data.table` metadata,
@@ -221,14 +221,14 @@ source head.
 
 ## Production closure gates
 
-Candidate readiness is not production proof. Close Pass 9 only after:
+Candidate readiness is not production proof. Operational closure status is
+recorded outside this identity-bound review. Every release must still require:
 
-1. PR run `30888675725` finishes its literal-head validator for exact candidate
-   `b7dffb6c1e149c52d094c4347483435df07856f6`;
-2. that expected candidate head is merged to `main`;
+1. a literal-head PR validator for the exact candidate;
+2. expected-head merge to `main`;
 3. Pages and Connect expose the same recomputed release identity; and
 4. Connect loads the canonical site family and completes a real Shiny
    client/server round trip.
 
 Record the resulting immutable identifiers in `docs/BUILD-TEST-HANDOFF.md` and
-`docs/DRIVER-KNOWLEDGE-PACKAGE.md` before changing the suite register to closed.
+the central Driver register before changing the suite register to closed.

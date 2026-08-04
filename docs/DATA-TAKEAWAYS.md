@@ -51,11 +51,10 @@ and its release ID is
 `sha256:fcee160ddb5e6ecedbca84811dea57993263507bbb8c38570b5243d5d7644ee5`.
 
 Human-authored, non-draft [PR #6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6)
-has that exact head. PR workflow `30888675725` completed successfully: gate,
-producer, validator, and PR-only stale-identity rejection are green; publisher
-is absent by design. Expected-head merge, Pages, Connect identity, and a live
-bidirectional Shiny probe subsequently passed. Production identifiers belong in
-`docs/BUILD-TEST-HANDOFF.md`.
+was opened at that exact head. This identity-bound takeaway stops at the
+knowable candidate/PR-head fact; downstream check, merge, Pages, Connect, and
+live-production status belongs only in `docs/BUILD-TEST-HANDOFF.md` and the
+central Driver register.
 
 ## Prior safe-failure evidence
 

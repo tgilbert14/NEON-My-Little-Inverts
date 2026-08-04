@@ -18,7 +18,7 @@
   `30888675725` and merged with expected-head protection as `ff23e994…`.
 - Pages deployment `30890184235`, Connect publication #17, and production
   verification `30890185880` are green on that exact merge and release identity.
-- The staged governance candidate strengthens the production browser gate: live
+- The staged governance changes strengthen the production browser gate: live
   Pages index/art/social-image bytes must match the reviewed checkout; the cover
   must render without horizontal clipping at 1280, 390, and 320 px with visible
   keyboard focus; and Connect must reject console, page, request, same-origin

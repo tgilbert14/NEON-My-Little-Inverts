@@ -71,11 +71,13 @@ the source/release contract, and reports exact reconciliation totals.
 
 ### 3. Validate from a clean checkout
 
-The validator receives only the allowlisted producer archive and raw
-source/receipt artifact. It then:
+Every validator lane receives only the allowlisted producer archive. A manual
+full-fetch lane additionally receives the immutable raw source/evidence/receipt
+artifact. The validator then:
 
 - checks archive membership before extraction;
-- reruns source-to-release reconciliation against the raw bytes;
+- validates the committed receipt/bundle family in every lane and, only for a
+  manual full fetch, independently replays raw-to-release reconciliation;
 - verifies every site schema, metric contract, QC contract, and bundle hash;
 - rebuilds support indexes and the canonical demo;
 - regenerates and independently checks the Connect manifest;
@@ -135,6 +137,7 @@ release workflow.
 6. Merge only the exact checked head.
 7. Verify exact Pages bytes and responsive renders, Connect identity/resources,
    and a live Shiny round trip.
-8. Record immutable evidence in the handoff and Driver package.
+8. Record immutable post-candidate evidence in the identity-excluded handoff and
+   central Driver register.
 
 If any boundary is uncertain, retain the evidence and stop before publication.

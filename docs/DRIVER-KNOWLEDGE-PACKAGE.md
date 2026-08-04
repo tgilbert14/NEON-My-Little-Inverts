@@ -12,14 +12,14 @@
 | Reviewed science head | `6043c400afb21425d7c319e8225b9693fae416da` |
 | Publication head | `a685e01c61938fcbd49325d7cf365aa272fae58a` |
 | Authoritative full run | `30885526988` (complete success) |
-| Direct-child candidate | `b7dffb6c1e149c52d094c4347483435df07856f6` |
-| Human review PR | [#6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6), exact head `b7dffb6c…` |
+| Ancestor direct-child candidate | `b7dffb6c1e149c52d094c4347483435df07856f6` |
+| Ancestor human-review PR | [#6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6), exact head `b7dffb6c…` |
 
 This identity-bound package records authoritative runtime lineage through its
-ancestor direct-child candidate and completed human review. Exact post-merge,
-Pages, Connect, and production identifiers live only in the identity-excluded
-`docs/BUILD-TEST-HANDOFF.md`; duplicating mutable closeout identifiers here
-would create a new release identity.
+ancestor direct-child candidate and the human-review PR opened at that exact
+head. Later check, merge, Pages, Connect, and production status lives only in
+the identity-excluded `docs/BUILD-TEST-HANDOFF.md` and central Driver register;
+duplicating mutable closeout status here would create a new release identity.
 
 ## What changed in Pass 9
 
@@ -108,12 +108,10 @@ and the release ID is
 `sha256:fcee160ddb5e6ecedbca84811dea57993263507bbb8c38570b5243d5d7644ee5`.
 
 Human-authored, non-draft [PR #6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6)
-has exact head `b7dffb6c1e149c52d094c4347483435df07856f6`. PR workflow
-`30888675725` completed successfully: gate, producer, validator, and the
-PR-only stale-identity rejection test are green; publisher is skipped with zero
-steps by design. Expected-head merge, Pages, Connect identity, and a live
-bidirectional Shiny probe subsequently passed. Exact production identifiers are
-recorded in `docs/BUILD-TEST-HANDOFF.md`.
+was opened at exact head `b7dffb6c1e149c52d094c4347483435df07856f6`.
+This identity-bound package stops at that knowable candidate/PR-head fact.
+Downstream check, merge, Pages, Connect, and live-production status belongs only
+in `docs/BUILD-TEST-HANDOFF.md` and the central Driver register.
 
 ## Safe-failure evidence
 

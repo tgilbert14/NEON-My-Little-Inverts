@@ -42,9 +42,12 @@ whenever scientific meaning changes.
 - Do not hand-edit or casually regenerate `data/`, `data-sample/`,
   `manifest.json`, or either release receipt. Use the producer → clean independent
   validator → restricted review-branch workflow.
-- Keep facts that can exist only after a candidate is created—candidate, PR,
-  merge, Pages, and Connect identifiers—out of identity-bound documentation.
-  Record them in `docs/BUILD-TEST-HANDOFF.md` and the central Driver register.
+- Identity-bound documentation may retain an already closed ancestor candidate
+  and PR as lineage when those facts exist before the current change begins.
+  Keep the current change's generated candidate and every later PR, merge,
+  Pages, and Connect identifier or status out of identity-bound documentation.
+  Record those only in `docs/BUILD-TEST-HANDOFF.md` and the central Driver
+  register.
 - Connect Cloud watches `main`. A reviewed exact-head merge is the deploy. The
   workflow must never push directly to `main`, create/approve its own PR, or
   publish a candidate whose parent is not the reviewed source head.

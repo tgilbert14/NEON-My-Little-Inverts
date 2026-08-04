@@ -44,6 +44,18 @@ const pagesViewports = [
   { label: "390px phone", width: 390, height: 844 },
   { label: "320px phone", width: 320, height: 568 },
 ];
+const connectViewports = [
+  { label: "desktop", width: 1280, height: 900 },
+  { label: "390px phone", width: 390, height: 844 },
+  { label: "320px phone", width: 320, height: 568 },
+];
+const expectedSycaStats = [
+  { label: "field opportunities", value: "193" },
+  { label: "count-eligible", value: "121" },
+  { label: "density-eligible", value: "121" },
+  { label: "mixed-rank taxa recorded", value: "245" },
+  { label: "collection events", value: "17" },
+];
 
 function fail(message) {
   throw new Error(`Production browser probe failed: ${message}`);
@@ -297,6 +309,105 @@ async function verifyPagesViewport(browser, viewport, revision) {
   }
 }
 
+async function verifyConnectViewport(page, viewport, expectedOrigin) {
+  await page.setViewportSize({ width: viewport.width, height: viewport.height });
+  await page.waitForTimeout(250);
+  const connectRendered = await page.evaluate(({ width }) => {
+    // The desktop art intentionally bleeds beneath the poster's overflow-hidden
+    // crop; validate the containing poster and visible caption, not that raw crop.
+    const selectors = [
+      ".inverts-poster", ".inv-poster-copy", ".inv-poster-topline",
+      ".inv-poster-brand", ".inv-poster-suite-link", ".inverts-poster h1",
+      ".inv-poster-promise", ".inv-poster-cta", ".inv-poster-note",
+      ".inv-poster-art figcaption",
+    ];
+    const clipped = selectors.flatMap((selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return [`${selector}:missing`];
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const bad = style.display === "none" || style.visibility === "hidden"
+        || rect.width <= 0 || rect.height <= 0
+        || rect.left < -1 || rect.right > window.innerWidth + 1;
+      return bad
+        ? [`${selector}:${[rect.left, rect.right, rect.width, rect.height].join(",")}`]
+        : [];
+    });
+    const overlaps = (left, right) => Boolean(left && right
+      && left.left < right.right - 1 && left.right > right.left + 1
+      && left.top < right.bottom - 1 && left.bottom > right.top + 1);
+    const poster = document.querySelector(".inverts-poster");
+    const image = document.querySelector(".inv-poster-art img");
+    const imageUrl = image?.currentSrc ? new URL(image.currentSrc) : null;
+    const brand = document.querySelector(".inv-poster-brand")?.getBoundingClientRect();
+    const suite = document.querySelector(".inv-poster-suite-link")
+      ?.getBoundingClientRect();
+    const art = document.querySelector(".inv-poster-art")?.getBoundingClientRect();
+    const copy = document.querySelector(".inv-poster-copy")?.getBoundingClientRect();
+    const cta = document.querySelector(".inv-poster-cta")?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      requestedWidth: width,
+      horizontalOverflow:
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      clipped,
+      posterDisplay: poster ? getComputedStyle(poster).display : "missing",
+      headerOverlap: overlaps(brand, suite),
+      mobileOrderBad: width <= 900
+        && Boolean(art && copy && art.bottom > copy.top + 1),
+      ctaHeight: cta?.height || 0,
+      driverHeight: suite?.height || 0,
+      artLoaded: Boolean(image?.complete && image.naturalWidth > 0
+        && image.naturalHeight > 0),
+      artOrigin: imageUrl?.origin || "",
+      artPath: imageUrl?.pathname || "",
+      posterAnimations: poster?.getAnimations({ subtree: true })
+        .filter((animation) => animation.playState !== "finished").length || 0,
+    };
+  }, { width: viewport.width });
+  if (connectRendered.viewportWidth !== connectRendered.requestedWidth) {
+    fail(`Connect ${viewport.label} rendered at ${connectRendered.viewportWidth}px`);
+  }
+  if (connectRendered.horizontalOverflow > 1 || connectRendered.clipped.length) {
+    fail(
+      `Connect ${viewport.label} clips or overflows `
+      + `(overflow=${connectRendered.horizontalOverflow}; `
+      + `${connectRendered.clipped.join(" | ")})`,
+    );
+  }
+  if (connectRendered.posterDisplay !== "grid") {
+    fail(`Connect ${viewport.label} poster display is ${connectRendered.posterDisplay}`);
+  }
+  if (connectRendered.headerOverlap) {
+    fail(`Connect ${viewport.label} poster header items overlap`);
+  }
+  if (connectRendered.mobileOrderBad) {
+    fail(`Connect ${viewport.label} does not keep artwork before poster copy`);
+  }
+  if (connectRendered.ctaHeight < 51 || connectRendered.driverHeight < 43) {
+    fail(
+      `Connect ${viewport.label} tap targets shrank `
+      + `(CTA=${connectRendered.ctaHeight}, Driver=${connectRendered.driverHeight})`,
+    );
+  }
+  if (!connectRendered.artLoaded
+      || connectRendered.artOrigin !== expectedOrigin
+      || !/\/assets\/inverts-living-poster-v2(?:-840)?[.](?:png|webp)$/.test(
+        connectRendered.artPath,
+      )) {
+    fail(
+      `Connect ${viewport.label} did not render reviewed local art `
+      + `(${connectRendered.artOrigin}${connectRendered.artPath})`,
+    );
+  }
+  if (connectRendered.posterAnimations) {
+    fail(
+      `Connect ${viewport.label} poster exposes `
+      + `${connectRendered.posterAnimations} live animation(s)`,
+    );
+  }
+}
+
 async function verifyConnect(browser, releaseId, revision) {
   const expectedOrigin = new URL(app).origin;
   const page = await browser.newPage({
@@ -374,6 +485,31 @@ async function verifyConnect(browser, releaseId, revision) {
       );
     }
 
+    for (const viewport of connectViewports) {
+      await verifyConnectViewport(page, viewport, expectedOrigin);
+    }
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      window.scrollTo(0, 0);
+    });
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => {
+      const skip = document.querySelector(".app-skip");
+      const style = skip ? getComputedStyle(skip) : null;
+      const rect = skip?.getBoundingClientRect();
+      return document.activeElement === skip
+        && skip.matches(":focus-visible")
+        && Number.parseFloat(style?.outlineWidth || "0") >= 2
+        && rect && rect.top >= 0;
+    });
+    await requireKeyboardFocus(page, ".app-skip", "Connect 320px skip link");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      () => document.activeElement?.id === "site-picker-start",
+    );
+    await page.setViewportSize({ width: 1280, height: 900 });
+
     // nationalPicker starts as an empty output div. A Leaflet pane exists only
     // after the live Shiny session sends and binds the server-rendered value.
     await page.waitForFunction(() => {
@@ -394,23 +530,26 @@ async function verifyConnect(browser, releaseId, revision) {
     }, expectedSites);
 
     // Load one canonical lazy bundle, not just the site index. The exact site
-    // route and a positive opportunity stat prove the runtime data path works.
+    // route and five exact visible receipt-bound stats prove the runtime data path.
     await page.locator(".site-card")
       .filter({ has: page.locator(".sc-name b", { hasText: "SYCA" }) })
       .click();
-    await page.waitForFunction(() => {
+    await page.waitForFunction((expectedStats) => {
       const stats = [...document.querySelectorAll("#heroStats .hero-stat")];
-      const opportunity = stats.find((stat) => (
-        stat.querySelector(".hs-l")?.textContent.trim() === "field opportunities"
-      ));
-      const value = Number(opportunity?.querySelector(".hs-v")?.dataset.target);
+      const exactStats = expectedStats.every(({ label, value }) => {
+        const stat = stats.find((candidate) => (
+          candidate.querySelector(".hs-l")?.textContent.trim() === label
+        ));
+        const counter = stat?.querySelector(".hs-v");
+        return counter?.dataset.target === value
+          && counter.textContent.trim() === value;
+      });
       const overlay = document.querySelector("#loadOverlay");
       return new URL(window.location.href).searchParams.get("site") === "SYCA"
-        && stats.length === 5
-        && Number.isFinite(value)
-        && value > 0
+        && stats.length === expectedStats.length
+        && exactStats
         && (!overlay || getComputedStyle(overlay).display === "none");
-    });
+    }, expectedSycaStats);
     await page.waitForFunction(
       () => !document.documentElement.classList.contains("shiny-busy"),
     );
