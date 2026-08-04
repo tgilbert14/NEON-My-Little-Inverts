@@ -515,26 +515,81 @@ expect_true(all(vapply(names(INV_VF_QC_COLUMNS), function(table_name) {
 expect_true(all(INV_ISSUE_LOG_COLUMNS %in% names(valid$issueLog_20120)),
             "valid fixture carries the full official issue-log schema")
 
-portable_fixture <- list(
-  frame = data.frame(
-    integer_altrep = 1:10000,
-    character_altrep = as.character(1:10000),
-    timestamp = as.POSIXct(
-      "2026-01-01 00:00:00", tz = "UTC"
-    ) + seq_len(10000),
-    stringsAsFactors = FALSE
-  )
+registered_calls <- getDLLRegisteredRoutines("stats")[[".Call"]]
+expect_true(
+  length(registered_calls) > 0L &&
+    identical(typeof(registered_calls[[1L]]$address), "externalptr"),
+  "portable fixture has a real non-null process-local external pointer"
 )
+portable_frame <- data.frame(
+  integer_altrep = 1:10000,
+  character_altrep = as.character(1:10000),
+  timestamp = as.POSIXct(
+    "2026-01-01 00:00:00", tz = "UTC"
+  ) + seq_len(10000),
+  stringsAsFactors = FALSE
+)
+class(portable_frame) <- c("data.table", "data.frame")
+attr(portable_frame, "source_marker") <- "ordinary-frame-attribute"
+attr(portable_frame, ".internal.selfref") <- registered_calls[[1L]]$address
+portable_fixture <- list(frame = portable_frame)
+uncanonical_path <- tempfile(fileext = ".rds")
+saveRDS(portable_fixture, uncanonical_path, version = 3)
+expect_true(
+  !identical(readRDS(uncanonical_path), portable_fixture),
+  "registered native self-reference reproduces the nonportable exact round trip"
+)
+unlink(uncanonical_path)
 portable_materialized <- inv_materialize_source(portable_fixture)
 portable_path <- tempfile(fileext = ".rds")
 saveRDS(portable_materialized, portable_path, version = 3)
 expect_true(
   identical(readRDS(portable_path), portable_materialized) &&
+    identical(class(portable_materialized$frame),
+              c("data.table", "data.frame")) &&
+    is.null(attr(portable_materialized$frame, ".internal.selfref")) &&
+    identical(attr(portable_materialized$frame, "source_marker"),
+              "ordinary-frame-attribute") &&
     inherits(portable_materialized$frame$timestamp, "POSIXct") &&
     identical(attr(portable_materialized$frame$timestamp, "tzone"), "UTC"),
-  "atomic source materialization preserves values/classes through exact bytes"
+  paste(
+    "source materialization removes only the process-local data.table",
+    "self-reference and preserves exact portable bytes"
+  )
 )
 unlink(portable_path)
+
+non_data_table_selfref <- data.frame(value = 1L)
+attr(non_data_table_selfref, ".internal.selfref") <-
+  registered_calls[[1L]]$address
+expect_error(
+  inv_materialize_source(list(frame = non_data_table_selfref)),
+  "Only data[.]table source frames may carry [.]internal[.]selfref"
+)
+non_pointer_selfref <- portable_frame
+attr(non_pointer_selfref, ".internal.selfref") <- "not-an-external-pointer"
+expect_error(
+  inv_materialize_source(list(frame = non_pointer_selfref)),
+  "data[.]table [.]internal[.]selfref must be an external pointer"
+)
+
+portable_evidence_root <- tempfile("inv-portable-fetch-evidence-")
+dir.create(portable_evidence_root)
+portable_artifact <- file.path(portable_evidence_root, INV_SOURCE_ARTIFACT_FILE)
+portable_evidence <- file.path(portable_evidence_root, INV_FETCH_EVIDENCE_FILE)
+inv_persist_fetch_evidence(
+  portable_fixture, portable_artifact, portable_evidence, FIXTURE_GIT_SHA,
+  "2026-07-22T12:34:56Z"
+)
+expect_true(
+  identical(readRDS(portable_artifact), portable_materialized) &&
+    identical(
+      inv_verify_fetch_evidence(portable_artifact, portable_evidence)$artifact$sha256,
+      inv_sha256_file(portable_artifact)
+    ),
+  "fetch evidence binds the exact canonical persisted data.table bytes"
+)
+unlink(portable_evidence_root, recursive = TRUE, force = TRUE)
 
 placeholder_coexisting <- fixture_taxonomy[1, , drop = FALSE]
 placeholder_coexisting$uid <- "10000000-0000-4000-8000-000000000011"

@@ -461,6 +461,22 @@ inv_materialize_atomic_column <- function(column) {
 inv_materialize_data_frame <- function(frame) {
   inv_assert(is.data.frame(frame), "Source object must be a data frame")
   frame_attributes <- attributes(frame)
+  if (".internal.selfref" %in% names(frame_attributes)) {
+    inv_assert(
+      inherits(frame, "data.table"),
+      "Only data.table source frames may carry .internal.selfref"
+    )
+    inv_assert(
+      identical(typeof(frame_attributes[[".internal.selfref"]]), "externalptr"),
+      "data.table .internal.selfref must be an external pointer"
+    )
+    # data.table uses this live process-local pointer only to manage its
+    # by-reference allocation state. R cannot preserve its address through
+    # serialization, and it is not source evidence. Canonicalize that one
+    # implementation attribute while retaining every scientific value, class,
+    # row identity, column attribute, and ordinary frame attribute.
+    frame_attributes[[".internal.selfref"]] <- NULL
+  }
   columns <- lapply(frame, inv_materialize_atomic_column)
   attributes(columns) <- frame_attributes
   columns
