@@ -45,6 +45,91 @@ for (pattern in prohibited_claims) {
 
 loaded_r <- paste(text[c("global.R", "ui.R", "server.R", "R/inv_helpers.R",
                          "R/report_pdf.R")], collapse = "\n")
+
+# The producer intentionally uses a lean dependency set, so keep a reviewed
+# app-local allowlist for the exact bsicons 0.1.2 vocabulary used by the UI.
+# When bsicons is installed (the clean validator and production runtime), also
+# render every literal through the public API. This catches a misspelled or
+# nonexistent icon before any candidate data is materialized or published.
+approved_bsicons_0_1_2 <- c(
+  "123", "arrow-left-circle", "braces", "bug-fill", "calendar3",
+  "check2-square", "chevron-down", "circle-half", "clipboard-data",
+  "clock-history", "compass", "diagram-3", "exclamation-octagon-fill",
+  "eye", "file-earmark-pdf", "file-earmark-spreadsheet", "fingerprint",
+  "flag", "geo-alt-fill", "globe-americas", "graph-up", "info-circle",
+  "info-circle-fill", "journal-text", "layers", "layers-half", "list-check",
+  "list-ul", "pie-chart", "pin-map-fill", "question-circle",
+  "record-circle", "rulers", "search", "shield-check", "sliders", "table",
+  "water"
+)
+icon_pattern <- '(?:bs_icon|card_head)\\(\\s*"[^"]+"'
+icon_hits <- regmatches(
+  loaded_r, gregexpr(icon_pattern, loaded_r, perl = TRUE)
+)[[1L]]
+direct_icon_names <- vapply(
+  strsplit(icon_hits, '"', fixed = TRUE),
+  function(parts) parts[[2L]],
+  character(1)
+)
+hero_pattern <- 'hero\\([^,\\n]+,\\s*"[^"]+",\\s*"[^"]+"'
+hero_hits <- regmatches(
+  text[["server.R"]],
+  gregexpr(hero_pattern, text[["server.R"]], perl = TRUE)
+)[[1L]]
+hero_icon_names <- vapply(
+  strsplit(hero_hits, '"', fixed = TRUE),
+  function(parts) parts[[4L]],
+  character(1)
+)
+expect(length(hero_icon_names) == 5L,
+       "all five dynamic hero icon arguments remain scalar literals")
+literal_icon_names <- sort(unique(c(direct_icon_names, hero_icon_names)))
+expect(length(literal_icon_names) > 0L,
+       "literal Bootstrap icon calls are discoverable")
+unexpected_icons <- setdiff(literal_icon_names, approved_bsicons_0_1_2)
+expect(
+  !length(unexpected_icons),
+  sprintf(
+    "every literal Bootstrap icon is in the reviewed bsicons 0.1.2 allowlist%s",
+    if (length(unexpected_icons)) {
+      paste0(": ", paste(unexpected_icons, collapse = ", "))
+    } else ""
+  )
+)
+manifest_contract <- jsonlite::fromJSON(
+  path("manifest.json"), simplifyVector = FALSE
+)$packages$bsicons
+expect(
+  identical(manifest_contract$Source, "CRAN") &&
+    identical(
+      manifest_contract$Repository,
+      "https://packagemanager.posit.co/cran/__linux__/jammy/2026-07-15"
+    ) &&
+    identical(manifest_contract$description$Version, "0.1.2"),
+  "the Connect manifest pins bsicons 0.1.2 to the dated Posit snapshot"
+)
+if (requireNamespace("bsicons", quietly = TRUE)) {
+  expect(
+    identical(as.character(utils::packageVersion("bsicons")), "0.1.2"),
+    "the runtime icon contract uses pinned bsicons 0.1.2"
+  )
+  invalid_icons <- literal_icon_names[vapply(
+    literal_icon_names,
+    function(icon) inherits(try(bsicons::bs_icon(icon), silent = TRUE),
+                             "try-error"),
+    logical(1)
+  )]
+  expect(
+    !length(invalid_icons),
+    sprintf(
+      "every literal Bootstrap icon renders through bsicons 0.1.2%s",
+      if (length(invalid_icons)) {
+        paste0(": ", paste(invalid_icons, collapse = ", "))
+      } else ""
+    )
+  )
+}
+
 for (pattern in c("bundle\\$bouts", "bundle\\$samples", "bundle\\$taxa\\b",
                   "bundle\\$qc_samples")) {
   expect(!grepl(pattern, loaded_r, perl = TRUE),

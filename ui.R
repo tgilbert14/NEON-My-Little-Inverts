@@ -324,7 +324,7 @@ ui <- bslib::page_fillable(
         ),
         card(
           full_screen = TRUE,
-          card_head("scatter-chart", "Site effort and record counts"),
+          card_head("graph-up", "Site effort and record counts"),
           uiOutput("networkBoundary"),
           spin(plotlyOutput("networkPlot", height = "500px"))
         ),
