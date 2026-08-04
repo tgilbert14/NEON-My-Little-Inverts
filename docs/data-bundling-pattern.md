@@ -1,155 +1,140 @@
-# The "bundle + .rds durable store" pattern
+# My Little Inverts — immutable bundle pattern
 
-A reusable recipe for making a data app **instant, offline-capable, and cheap to host** when its
-data comes from a slow or rate-limited source (an API, a scraper, a big remote DB). Used here to
-turn ~1-minute live NEON downloads into instant loads. Carry it to any future project.
+This app treats committed `.rds` files as a read-only, content-addressed release.
+The older “skip existing files, fall back to a live API, then push refreshed data”
+recipe is retired. It could mix source vintages, hide failed sites, bypass review,
+and make the running app scientifically unreproducible.
 
----
+## Release shape
 
-## The core idea (in one sentence)
+The exact derived family is:
 
-> Pre-compute the data **once** into small, compressed files committed alongside the app, have the
-> app **read those files at runtime**, and "update" by **re-running the build script and
-> redeploying** — instead of querying a live source (or standing up a database) on every request.
-
-The files *are* the database. They're read-only, versioned with the code, and shipped in the deploy
-bundle.
-
----
-
-## What `.rds` is and why it's the right container here
-
-`.rds` is R's native **binary serialization** of a single object (here, a data frame).
-
-- **Exact fidelity** — column types, factors, dates, attributes all survive a round-trip. No
-  re-parsing, no "is this column character or numeric?" guessing like with CSV.
-- **Fast** — `readRDS()` is a binary load; far faster than parsing CSV/JSON.
-- **Compresses hard** — `saveRDS(x, file, compress = "xz")` shrinks tabular data dramatically.
-  In this app a site went from an ~80k-row raw table to **~0.4 MB** on disk.
-- **One object per file** — perfect for "one file per entity" (one site, one team, one customer…).
-
-Python equivalents: `parquet` (best, columnar, cross-language) or `pickle`/`feather`. Same pattern,
-different container. Use **parquet** if anything non-R will ever read the files.
-
----
-
-## Why not just a live API call every time?
-
-- **Slow** — users wait on every load; a bad first impression.
-- **Fragile** — the upstream source can be down, rate-limited, or change its schema.
-- **Repeated work** — the same query runs thousands of times for data that barely changes.
-
-## Why not a real database (SQLite/Postgres)?
-
-Often overkill, and on ephemeral hosting (shinyapps.io, most PaaS) a DB you write at runtime
-**doesn't survive restarts/scale events**. A persistent DB means a separate server + connection
-management + a sync job. Worth it only when you need: writes from users, very large data that can't
-be bundled, complex multi-table joins at query time, or live freshness. For **read-only, slowly-
-changing, bundle-sized** data, the file bundle wins on simplicity.
-
-**Rule of thumb:** if the whole dataset (trimmed + compressed) fits comfortably in your deploy
-bundle (tens of MB), bundle it. If it's gigabytes or needs live writes, use a real DB.
-
----
-
-## The build script (the "refresh")
-
-A standalone script (`scripts/refresh_data.R` here) that you run on your machine, not in the app:
-
-```r
-keep <- c(...the columns the app actually uses...)        # 1. TRIM — drop unused columns
-for (entity in entities) {
-  out <- file.path("data/sites", paste0(entity, ".rds"))
-  if (file.exists(out)) next                              # 2. RESUMABLE — skip done work
-  raw <- tryCatch(fetch(entity), error = function(e) NULL) # 3. ROBUST — one failure ≠ whole job dies
-  if (is.null(raw)) next
-  saveRDS(raw[, keep], out, compress = "xz")               # 4. TRIM + COMPRESS to disk
-}
+```text
+data/source_receipt.json
+data/release_contract.rds
+data/sites/<34 canonical sites>.rds
+data/site_index.rds
+data/cross_site.rds
+data/search_index.rds
+data-sample/demo.rds
+manifest.json
+release/production-identity.json
+docs/release.json
 ```
 
-Four habits that make it pleasant:
+Each site file contains one schema-`2.1.0` object with:
 
-1. **Trim to the columns you use** — the single biggest size win (NEON gives 72 columns; the app
-   needs ~33).
-2. **Resumable** — skip files that already exist, so a flaky 40-minute download you can just re-run.
-3. **Robust per item** — wrap each fetch in `tryCatch`; log and skip failures.
-4. **Compress** — `compress = "xz"` (slowest write, smallest file — fine for a build step).
-
-"**Pull newer data if needed**" = delete the file(s) you want fresh and re-run (existing files are
-skipped), then redeploy. You can even schedule this (a GitHub Action / cron) to re-bundle monthly.
-
----
-
-## The app side (read + graceful fallback)
-
-```r
-load_bundle <- function(id) {                    # read the file if it exists, else NULL
-  f <- file.path("data/sites", paste0(id, ".rds"))
-  if (file.exists(f)) readRDS(f) else NULL
-}
-
-# in the load handler:
-b <- load_bundle(id)
-if (!is.null(b)) {
-  use(filter_window(b, start, end))              # INSTANT — from disk, filtered in-memory
-} else {
-  use(fetch_live(id, start, end))                # FALLBACK — only when not bundled
-}
+```text
+opportunities  event_strata  taxon_strata  site_summary
+meta  metric_contract  qc  provenance
 ```
 
-Two ideas that make it robust:
+The app loads these files only. A missing, malformed, legacy, or identity-mismatched
+bundle fails closed; runtime never queries NEON.
 
-- **Filter on read.** Bundle the *full* record per entity; apply the user's date/window filter
-  in-memory after reading. One file serves every window.
-- **Graceful fallback.** If a file is missing (not yet bundled, or a brand-new entity), fall through
-  to the live source. The app works the same; it's just slower for un-bundled items. So you can ship
-  the code before the bundle is complete.
+## Why one file per site
 
----
+- Site selection loads only the relevant observations.
+- Native R classes and evidence fields survive without CSV type inference.
+- `xz` compression keeps the deploy family compact.
+- Each site has an independent SHA-256 in the release contract.
+- The validator can stream one full site at a time and hold memory use constant.
 
-## Deploy: the files travel with the app
+The release contract still binds all 34 files as one family. A single-site edit
+is not an independent release and cannot be combined with 33 files from another
+source receipt.
 
-The deploy bundles the `.rds` files alongside the code (here `scripts/deploy.R` adds
-`data/sites/*.rds` to the file list). Because they're committed to the repo, they're versioned with
-the code and reproducible. Keep raw downloads out of the bundle (`.gitignore` the neon cache /
-`filesToProcess`) — only the trimmed `.rds` ship.
+## Authoritative build flow
 
-### ⚠ Rebuilt bundles do NOT go live until you republish
+### 1. Fetch once, manually
 
-On a git-backed host (Posit Connect Cloud), the running app serves the **published snapshot**, and
-`manifest.json` pins a **SHA/MD5 checksum per bundled file**. So rebuilding a `.rds` locally changes
-nothing in production, and a changed bundle whose checksum wasn't refreshed can even fail the deploy.
-This bit us once — bundles looked updated locally but the live app kept serving the old data until a
-republish. The required sequence after any data rebuild:
+`scripts/fetch_inv_all.R` requests exact `RELEASE-2026`, basic package, all sites
+and time, provisional disabled. It writes outside the repository:
 
-1. rebuild the bundles (`scripts/refresh_data.R`)
-2. **regenerate the manifest** so its checksums match the new files (`scripts/write_manifest.R` →
-   `rsconnect::writeManifest()`)
-3. `git add data/ manifest.json && git commit`
-4. **push + republish** on Connect Cloud (git-backed redeploy)
+```text
+DP1.20120.001_all.rds
+DP1.20120.001_fetch_evidence.json
+DP1.20120.001_source_receipt.json   # only after source-contract success
+```
 
-Miss step 2 or 4 and the deployed app silently keeps the stale data. (On a non-manifest host like
-shinyapps.io, there's no checksum step, but you still must redeploy — the bundle only updates on push.)
+The raw RDS is immutable. Fetch evidence is retained even if validation fails,
+but it explicitly forbids publication until the authoritative receipt exists.
 
----
+### 2. Produce from the receipt-bound raw artifact
 
-## When to reach for this
+`scripts/build_inv_data.R` removes the entire prior generated family in a scoped
+workspace and rebuilds all 34 sites from one source. It delegates science and
+serialization to `scripts/inv_producer.R`; no site is resumed from an older run.
 
-| Situation | Use this pattern? |
-| --- | --- |
-| Slow/rate-limited API, data changes slowly, read-only | ✅ Yes — ideal |
-| Dataset (trimmed+compressed) fits in tens of MB | ✅ Yes |
-| Users need to write/save data | ❌ No — needs a real DB |
-| Data is gigabytes, or must be live-fresh | ❌ No — DB / warehouse / live query |
-| Cross-language consumers | ✅ but use **parquet**, not `.rds` |
+The producer writes primitive evidence and derived summaries together, creates
+the source/release contract, and reports exact reconciliation totals.
 
----
+### 3. Validate from a clean checkout
 
-## TL;DR recipe for a future project
+The validator receives only the allowlisted producer archive and raw
+source/receipt artifact. It then:
 
-1. Write a `refresh` script: loop entities → fetch → **trim columns** → `saveRDS(..., compress="xz")`
-   into `data/<thing>/<id>.rds`. Make it **resumable** + **tryCatch per item**.
-2. App: `load_bundle(id)` reads the file; **filter in memory**; **fall back** to live if missing.
-3. Commit the `.rds` files (they're the durable store) and include them in the deploy bundle.
-4. To refresh: delete the stale files, re-run the script, **regenerate the manifest, commit, and
-   republish** — on a git-backed/manifest host the live app keeps the old data until you do.
+- checks archive membership before extraction;
+- reruns source-to-release reconciliation against the raw bytes;
+- verifies every site schema, metric contract, QC contract, and bundle hash;
+- rebuilds support indexes and the canonical demo;
+- regenerates and independently checks the Connect manifest;
+- writes one identity across runtime, data, poster, Pages, and manifest; and
+- repeats the final release verifier.
+
+The validated archive, not the producer workspace, is publication input.
+
+### 4. Publish a review branch, never production
+
+The publisher stages only the generated allowlist, requires the candidate to be
+a direct child of the reviewed source head, and uses force-with-lease on the fixed
+review branch. It never pushes `main` or authenticates its own PR.
+
+A human-reviewed, literal-head-green candidate may merge to `main`. Connect
+Cloud watches `main`; GitHub Pages deploys the matching poster. Post-deploy checks
+must byte-compare the served Pages cover/art/social image, render the cover at
+desktop and 390/320 px seams, prove Connect exposes the exact release identity,
+and complete a live Shiny round trip without browser or same-origin resource
+errors.
+
+## Determinism and memory rules
+
+- Sort every source projection and derived table with explicit stable keys.
+- Never use wall-clock time, locale-dependent formatting, or filesystem order in
+  release bytes.
+- Do not modify source tables by reference. Strip only the documented volatile
+  `data.table` self-reference during canonical materialization.
+- Rebuild twice from the same raw authority and compare all release-family bytes.
+- Stream bundle verification and assert that at most one fully loaded site bundle
+  is retained.
+- Keep derived `site_index`, `cross_site`, and `search_index` support-only; they
+  cannot introduce a biological metric absent from the site family.
+
+## Manifest discipline
+
+`manifest.json` is part of the release identity. Regenerate it only in the clean
+validator under R 4.5.2 and the pinned 2026-07-15 package lane. Ordinary packages
+must resolve to that dated RSPM lane; exact allowlisted URL packages retain their
+reviewed source URLs. Moving repositories, unpinned remotes, validator clocks,
+extra runtime paths, or an MD5 mismatch fail publication.
+
+Do not run `rsconnect::writeManifest()` casually in a docs-only or UI-only
+working tree. A new manifest claims a new deploy family and requires the full
+release workflow.
+
+## Safe maintenance checklist
+
+1. Decide whether the change affects source, science, serialization, runtime, or
+   docs only.
+2. For source/science/data changes, run all offline contract tests and an exact
+   raw replay in a disposable checkout.
+3. Dispatch the manual full fetch only from the immutable reviewed head.
+4. Require producer, clean validator, deterministic replay, and restricted
+   publisher success.
+5. Review the candidate allowlist and direct-parent relation.
+6. Merge only the exact checked head.
+7. Verify exact Pages bytes and responsive renders, Connect identity/resources,
+   and a live Shiny round trip.
+8. Record immutable evidence in the handoff and Driver package.
+
+If any boundary is uncertain, retain the evidence and stop before publication.

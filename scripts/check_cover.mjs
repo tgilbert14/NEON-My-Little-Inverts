@@ -155,6 +155,9 @@ for (const [name, source] of [["Pages cover", cover], ["app poster CSS", posterC
   requireContract(!/\btransition\s*:/i.test(source), `${name} must not add decorative motion`);
 }
 requireContract(!/\bfetch\s*\(/.test(cover), "Pages cover must not prewarm or fetch");
+requireContract(!/<script\b/i.test(cover), "Pages cover must not contain scripts");
+requireContract(!/\son[a-z]+\s*=/i.test(cover), "Pages cover must not contain inline event handlers");
+requireContract(!/(?:href|src)\s*=\s*["']\s*javascript:/i.test(cover), "Pages cover must not contain javascript: URLs");
 requireContract(!/<script\b[^>]+src=["']https?:/i.test(cover), "Pages cover has a remote script");
 requireContract(!/<img\b[^>]+src=["']https?:/i.test(cover), "Pages cover has a remote image");
 requireContract(!/<link\b[^>]+rel=["']stylesheet["'][^>]+href=["']https?:/i.test(cover), "Pages cover has a remote stylesheet");
@@ -190,6 +193,10 @@ requireContract(/class = "app-skip", href = "#site-picker-start"/.test(ui), "app
 requireContract(/id = "site-picker-start", class = "picker-map-wrap", tabindex = "-1"/.test(firstImpression), "picker must be a focusable CTA target");
 requireContract(!/class = "splash-guide"/.test(firstImpression), "floating mascot prompt remains on the first impression");
 requireContract(/inverts-living-poster-v2-840\.webp/.test(appPoster) && /inverts-living-poster-v2\.webp/.test(appPoster) && /inverts-living-poster-v2\.png/.test(appPoster), "app responsive art set is incomplete");
+requireContract(/alt = paste\(/.test(appPoster)
+  && /Editorial screenprint of a mayfly nymph/.test(appPoster)
+  && /leaves beside field tags\./.test(appPoster),
+  "app poster artwork needs the reviewed descriptive alt");
 requireContract(/Editorial illustration—not a field photograph or data record\./.test(appPoster), "app art/data boundary is missing");
 requireContract(/@media \(max-width: 900px\)/.test(posterCss), "app poster tablet seam is missing");
 requireContract(/@media \(max-width: 420px\) and \(max-height: 860px\)/.test(posterCss), "app poster short-phone seam is missing");
@@ -288,6 +295,7 @@ requireContract(/branches: \[main\]/.test(postDeployWorkflow)
   && /node scripts\/post_deploy_browser\.mjs/.test(postDeployWorkflow),
 "content-aware post-deploy workflow is not wired to main");
 requireContract(npmPackage.private === true
+  && npmPackage.scripts?.["check:cover"] === "node scripts/check_cover.mjs"
   && npmPackage.devDependencies?.playwright === "1.55.0"
   && npmLock.lockfileVersion === 3
   && npmLock.packages?.["node_modules/playwright"]?.version === "1.55.0"
@@ -315,6 +323,29 @@ requireContract(/#nationalPicker/.test(postDeployBrowser)
   && /How to read My Little Inverts/.test(postDeployBrowser)
   && /ddl-release-instance/.test(postDeployBrowser),
 "post-deploy browser gate does not prove an exact live Shiny round trip");
+requireContract(/const pagesFiles = \[/.test(postDeployBrowser)
+  && /docs\/index\.html/.test(postDeployBrowser)
+  && /docs\/og-image-v2\.png/.test(postDeployBrowser)
+  && /docs\/assets\/inverts-living-poster-v2-840\.webp/.test(postDeployBrowser)
+  && /verifyExactPagesBytes/.test(postDeployBrowser)
+  && /observedHash !== expectedHash/.test(postDeployBrowser),
+  "post-deploy browser gate does not byte-verify the reviewed Pages surface");
+requireContract(/width: 1280, height: 900/.test(postDeployBrowser)
+  && /width: 390, height: 844/.test(postDeployBrowser)
+  && /width: 320, height: 568/.test(postDeployBrowser)
+  && /horizontalOverflow/.test(postDeployBrowser)
+  && /headerOverlap/.test(postDeployBrowser)
+  && /requireKeyboardFocus/.test(postDeployBrowser)
+  && /naturalWidth > 0/.test(postDeployBrowser),
+  "post-deploy browser gate does not render-check Pages at desktop/390/320");
+requireContract(/page\.on\("console"/.test(postDeployBrowser)
+  && /page\.on\("pageerror"/.test(postDeployBrowser)
+  && /page\.on\("requestfailed"/.test(postDeployBrowser)
+  && /response\.status\(\) >= 400/.test(postDeployBrowser)
+  && /sameOrigin\(response\.url\(\), expectedOrigin\)/.test(postDeployBrowser)
+  && /appSurface\.artLoaded/.test(postDeployBrowser)
+  && /appSurface\.posterCss/.test(postDeployBrowser),
+  "post-deploy Connect gate does not reject browser/resource/render failures");
 const browserRosterBlock = postDeployBrowser.match(
   /const expectedSites = \[([\s\S]*?)\];/,
 );

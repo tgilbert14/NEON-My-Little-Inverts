@@ -135,8 +135,21 @@ make_fixture <- function(root, reverse = FALSE) {
     "docs/.nojekyll" = "",
     "docs/index.html" = "<main>fixture Pages poster</main>\n",
     "docs/og-image-v2.png" = "fixture social image\n",
+    "docs/assets/inverts-living-poster-v2-840.webp" =
+      "fixture responsive Pages poster\n",
+    "docs/assets/inverts-living-poster-v2.png" =
+      "fixture lossless Pages poster\n",
+    "docs/assets/inverts-living-poster-v2.webp" =
+      "fixture Pages poster\n",
+    "docs/BUILD-TEST-HANDOFF.md" = if (reverse) {
+      "fixture mutable handoff with different bytes\n"
+    } else {
+      "fixture mutable handoff\n"
+    },
+    "docs/DATA-TAKEAWAYS.md" = "fixture data takeaways\n",
     "docs/IMAGE-PROVENANCE.md" = "fixture image provenance\n",
-    "docs/assets/poster.webp" = "fixture Pages poster\n"
+    "docs/data-bundling-pattern.md" = "fixture bundling pattern\n",
+    "docs/neonize-playbook.md" = "fixture app playbook\n"
   )
   order_paths <- names(simple)
   if (reverse) order_paths <- rev(order_paths)
@@ -357,8 +370,15 @@ run_writer(root_b, "write", expect_success = TRUE)
 
 identity_a <- read_bytes(file.path(root_a, "release", "production-identity.json"))
 identity_b <- read_bytes(file.path(root_b, "release", "production-identity.json"))
+assert(!identical(
+  read_bytes(file.path(root_a, "docs", "BUILD-TEST-HANDOFF.md")),
+  read_bytes(file.path(root_b, "docs", "BUILD-TEST-HANDOFF.md"))
+), "Fixture did not vary the exact handoff bytes between write-mode builds.")
 assert(identical(identity_a, identity_b),
-       "Production identity depends on object or file creation order.")
+       paste(
+         "Production identity depends on object/file creation order or the",
+         "exact mutable handoff bytes."
+       ))
 assert(identical(
   identity_a, read_bytes(file.path(root_a, "docs", "release.json"))
 ), "Runtime identity and Pages receipt are not byte-identical.")
@@ -380,6 +400,48 @@ assert(identical(names(identity), expected_fields) &&
          grepl("^sha256:[0-9a-f]{64}$", as.character(identity$release_id)),
        "Synthetic identity has an invalid schema or digest field.")
 
+pages_static_files <- c(
+  "docs/.nojekyll",
+  "docs/index.html",
+  "docs/og-image-v2.png",
+  "docs/assets/inverts-living-poster-v2-840.webp",
+  "docs/assets/inverts-living-poster-v2.png",
+  "docs/assets/inverts-living-poster-v2.webp"
+)
+pages_markdown_files <- c(
+  "docs/DATA-TAKEAWAYS.md", "docs/IMAGE-PROVENANCE.md",
+  "docs/data-bundling-pattern.md", "docs/neonize-playbook.md"
+)
+expected_pages_paths <- sort(
+  c(pages_static_files, pages_markdown_files), method = "radix"
+)
+expected_pages_entries <- paste(
+  expected_pages_paths,
+  vapply(file.path(root_a, expected_pages_paths), sha256_file, character(1)),
+  sep = "\t"
+)
+expected_pages_sha256 <- unname(digest::digest(
+  paste(
+    "neon-inverts-pages-payload-v2",
+    paste0(paste(expected_pages_entries, collapse = "\n"), "\n"),
+    sep = "\n"
+  ),
+  algo = "sha256", serialize = FALSE
+))
+assert(identical(
+  as.character(identity$pages_payload_sha256), expected_pages_sha256
+), paste(
+  "Pages identity does not bind the exact static allowlist and every",
+  "non-handoff root Markdown file under the v2 domain."
+))
+
+# Write mode must accept its previously generated receipt and reproduce the
+# exact identity; this is the normal shape of a release-candidate rebuild.
+run_writer(root_a, "write", expect_success = TRUE)
+assert(identical(
+  identity_a, read_bytes(file.path(root_a, "release", "production-identity.json"))
+), "Write mode changed identity when its prior Pages receipt was present.")
+
 identity_material <- c(
   "neon-my-little-inverts-production-instance-v1",
   as.character(unlist(identity[2:17], use.names = FALSE))
@@ -390,6 +452,84 @@ expected_id <- paste0("sha256:", digest::digest(
 ))
 assert(identical(as.character(identity$release_id), expected_id),
        "Release ID does not independently re-derive from the identity fields.")
+
+write_extra_markdown_root <- file.path(
+  fixture_parent, "write-extra-root-markdown"
+)
+make_fixture(write_extra_markdown_root)
+write_bytes(
+  file.path(write_extra_markdown_root, "docs", "EXPERT-REVIEW.md"),
+  charToRaw("fixture expert review\n")
+)
+run_writer(write_extra_markdown_root, "write", expect_success = TRUE)
+write_extra_identity <- jsonlite::fromJSON(
+  file.path(write_extra_markdown_root, "release", "production-identity.json"),
+  simplifyVector = FALSE
+)
+assert(!identical(
+  as.character(write_extra_identity$pages_payload_sha256),
+  as.character(identity$pages_payload_sha256)
+), "Write mode did not identity-bind an added root docs/*.md file.")
+
+write_missing_handoff_root <- file.path(
+  fixture_parent, "write-missing-handoff"
+)
+make_fixture(write_missing_handoff_root)
+unlink(file.path(
+  write_missing_handoff_root, "docs", "BUILD-TEST-HANDOFF.md"
+))
+write_missing_handoff_output <- run_writer(
+  write_missing_handoff_root, "write", expect_success = FALSE
+)
+assert(any(grepl(
+  "lacks the exact build/test handoff", write_missing_handoff_output,
+  fixed = TRUE
+)), "Write mode accepted a missing exact build/test handoff path.")
+
+write_missing_static_root <- file.path(
+  fixture_parent, "write-missing-static"
+)
+make_fixture(write_missing_static_root)
+unlink(file.path(write_missing_static_root, "docs", "og-image-v2.png"))
+write_missing_static_output <- run_writer(
+  write_missing_static_root, "write", expect_success = FALSE
+)
+assert(any(grepl(
+  "Pages payload inventory is not exact", write_missing_static_output,
+  fixed = TRUE
+)), "Write mode accepted an incomplete static Pages allowlist.")
+
+write_unknown_non_document_root <- file.path(
+  fixture_parent, "write-unknown-non-document"
+)
+make_fixture(write_unknown_non_document_root)
+write_bytes(
+  file.path(write_unknown_non_document_root, "docs", "notes.txt"),
+  charToRaw("unreviewed Pages file\n")
+)
+write_unknown_non_document_output <- run_writer(
+  write_unknown_non_document_root, "write", expect_success = FALSE
+)
+assert(any(grepl(
+  "Pages payload inventory is not exact", write_unknown_non_document_output,
+  fixed = TRUE
+)), "Write mode accepted a non-allowlisted Pages file.")
+
+write_nested_markdown_root <- file.path(
+  fixture_parent, "write-nested-markdown"
+)
+make_fixture(write_nested_markdown_root)
+write_bytes(
+  file.path(write_nested_markdown_root, "docs", "nested", "REVIEW.md"),
+  charToRaw("nested unreviewed document\n")
+)
+write_nested_markdown_output <- run_writer(
+  write_nested_markdown_root, "write", expect_success = FALSE
+)
+assert(any(grepl(
+  "Pages payload inventory is not exact", write_nested_markdown_output,
+  fixed = TRUE
+)), "Write mode accepted Markdown outside root docs/*.md.")
 
 invalid_lineage_root <- file.path(fixture_parent, "invalid-lineage")
 make_fixture(invalid_lineage_root)
@@ -552,6 +692,116 @@ write_manifest(root_a, manifest)
 final_manifest <- read_bytes(manifest_path)
 run_writer(root_a, "verify", expect_success = TRUE)
 
+handoff_path <- file.path(root_a, "docs", "BUILD-TEST-HANDOFF.md")
+handoff_original <- read_bytes(handoff_path)
+write_bytes(handoff_path, c(
+  handoff_original, charToRaw("mutable session closeout\n")
+))
+run_writer(root_a, "verify", expect_success = TRUE)
+assert(identical(
+  identity_a, read_bytes(file.path(root_a, "release", "production-identity.json"))
+), "Exact handoff byte changes unexpectedly changed production identity.")
+write_bytes(handoff_path, handoff_original)
+
+unlink(handoff_path)
+missing_handoff_output <- run_writer(
+  root_a, "verify", expect_success = FALSE
+)
+assert(any(grepl(
+  "lacks the exact build/test handoff", missing_handoff_output, fixed = TRUE
+)), "Verify mode accepted a missing exact handoff path.")
+write_bytes(handoff_path, handoff_original)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+extra_markdown_path <- file.path(root_a, "docs", "EXPERT-REVIEW.md")
+write_bytes(extra_markdown_path, charToRaw("new expert review\n"))
+run_writer(root_a, "verify", expect_success = FALSE)
+unlink(extra_markdown_path)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+handoff_lookalike_path <- file.path(
+  root_a, "docs", "BUILD-TEST-HANDOFF-copy.md"
+)
+write_bytes(handoff_lookalike_path, charToRaw("not the exact handoff\n"))
+run_writer(root_a, "verify", expect_success = FALSE)
+unlink(handoff_lookalike_path)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+unknown_non_document_path <- file.path(root_a, "docs", "notes.txt")
+write_bytes(unknown_non_document_path, charToRaw("unreviewed Pages file\n"))
+unknown_non_document_output <- run_writer(
+  root_a, "verify", expect_success = FALSE
+)
+assert(any(grepl(
+  "Pages payload inventory is not exact", unknown_non_document_output,
+  fixed = TRUE
+)), "Verify mode accepted a non-allowlisted Pages file.")
+unlink(unknown_non_document_path)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+hidden_non_document_path <- file.path(root_a, "docs", ".unreviewed")
+write_bytes(hidden_non_document_path, charToRaw("hidden Pages file\n"))
+hidden_non_document_output <- run_writer(
+  root_a, "verify", expect_success = FALSE
+)
+assert(any(grepl(
+  "Pages payload inventory is not exact", hidden_non_document_output,
+  fixed = TRUE
+)), "Verify mode ignored a hidden non-allowlisted Pages file.")
+unlink(hidden_non_document_path)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+nested_markdown_path <- file.path(root_a, "docs", "nested", "REVIEW.md")
+write_bytes(nested_markdown_path, charToRaw("nested unreviewed document\n"))
+nested_markdown_output <- run_writer(
+  root_a, "verify", expect_success = FALSE
+)
+assert(any(grepl(
+  "Pages payload inventory is not exact", nested_markdown_output,
+  fixed = TRUE
+)), "Verify mode accepted Markdown outside root docs/*.md.")
+unlink(nested_markdown_path)
+unlink(dirname(nested_markdown_path), recursive = TRUE)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+static_path <- file.path(root_a, "docs", "og-image-v2.png")
+static_original <- read_bytes(static_path)
+unlink(static_path)
+missing_static_output <- run_writer(root_a, "verify", expect_success = FALSE)
+assert(any(grepl(
+  "Pages payload inventory is not exact", missing_static_output, fixed = TRUE
+)), "Verify mode accepted an incomplete static Pages allowlist.")
+write_bytes(static_path, static_original)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+pages_receipt_path <- file.path(root_a, "docs", "release.json")
+pages_receipt_original <- read_bytes(pages_receipt_path)
+unlink(pages_receipt_path)
+missing_pages_receipt_output <- run_writer(
+  root_a, "verify", expect_success = FALSE
+)
+assert(any(grepl(
+  "lacks its generated release receipt", missing_pages_receipt_output,
+  fixed = TRUE
+)), "Verify mode accepted a missing generated Pages receipt.")
+write_bytes(pages_receipt_path, pages_receipt_original)
+run_writer(root_a, "verify", expect_success = TRUE)
+
+outside_governance <- file.path(fixture_parent, "outside-governance.md")
+write_bytes(outside_governance, charToRaw("outside governance bytes\n"))
+linked_governance <- file.path(root_a, "docs", "LINKED-REVIEW.md")
+assert(isTRUE(file.symlink(outside_governance, linked_governance)),
+       "Could not create the linked Pages-document fixture.")
+linked_governance_output <- run_writer(
+  root_a, "verify", expect_success = FALSE
+)
+assert(any(grepl(
+  "release enumeration must not enter symbolic-link components",
+  linked_governance_output, fixed = TRUE
+)), "Safe Pages enumeration accepted a linked root Markdown file.")
+unlink(linked_governance)
+run_writer(root_a, "verify", expect_success = TRUE)
+
 outside_tree <- file.path(fixture_parent, "outside-tree")
 write_bytes(
   file.path(outside_tree, "nested", "escaped.txt"),
@@ -633,7 +883,8 @@ tamper_file <- function(relative) {
 }
 for (relative in c(
   "global.R", "data/sites/ARIK.rds", "data/search_index.rds",
-  "docs/assets/poster.webp", "docs/IMAGE-PROVENANCE.md", "docs/.nojekyll"
+  "docs/assets/inverts-living-poster-v2.webp",
+  "docs/IMAGE-PROVENANCE.md", "docs/.nojekyll"
 )) tamper_file(relative)
 
 manifest_value <- jsonlite::fromJSON(rawToChar(final_manifest), simplifyVector = FALSE)
