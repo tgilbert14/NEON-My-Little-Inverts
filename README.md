@@ -14,9 +14,11 @@ and a reported laboratory zero distinct.
 - The source is the exact public `RELEASE-2026` product with provisional data
   disabled. The fetch produces an immutable raw RDS artifact and SHA-256 source
   receipt before any derived bundle is built.
-- `inv_fieldData` is the opportunity ledger. Practical samples reconcile
-  one-to-one to `inv_persample`; processed taxonomy rows remain children of that
-  sample. `.DNA` field rows are inventoried separately as metabarcoding material.
+- `inv_fieldData` is the opportunity ledger. Every canonical `inv_persample`
+  child reconciles to one practical field opportunity, while a practical
+  opportunity may legitimately lack that child. Taxonomy rows still reconcile
+  to their practical field parent. `.DNA` field rows are inventoried separately
+  as metabarcoding material.
 - `GRAB`, `BRYOZOAN`, and `MACROALGAE` special-ID records remain auditable as
   nonstandard collections but are excluded from the primary quantitative
   strata.
@@ -85,8 +87,9 @@ scripts/post_deploy_smoke.sh
   wait for both public hosts to expose the exact validated ID; reject error shells
 
 scripts/post_deploy_browser.mjs
-  open Connect with lockfile-pinned Playwright; require the exact 34-site roster,
-  load the SYCA bundle, and complete a help-modal server round trip
+  byte-compare the live Pages cover/art/social image, render-check it at
+  1280/390/320 px with keyboard focus, then require Connect's exact 34-site
+  roster, local art/styles, SYCA bundle, and help-modal server round trip
 ```
 
 Each site bundle uses schema `2.1.0` and contains:

@@ -155,6 +155,9 @@ for (const [name, source] of [["Pages cover", cover], ["app poster CSS", posterC
   requireContract(!/\btransition\s*:/i.test(source), `${name} must not add decorative motion`);
 }
 requireContract(!/\bfetch\s*\(/.test(cover), "Pages cover must not prewarm or fetch");
+requireContract(!/<script\b/i.test(cover), "Pages cover must not contain scripts");
+requireContract(!/\son[a-z]+\s*=/i.test(cover), "Pages cover must not contain inline event handlers");
+requireContract(!/(?:href|src)\s*=\s*["']\s*javascript:/i.test(cover), "Pages cover must not contain javascript: URLs");
 requireContract(!/<script\b[^>]+src=["']https?:/i.test(cover), "Pages cover has a remote script");
 requireContract(!/<img\b[^>]+src=["']https?:/i.test(cover), "Pages cover has a remote image");
 requireContract(!/<link\b[^>]+rel=["']stylesheet["'][^>]+href=["']https?:/i.test(cover), "Pages cover has a remote stylesheet");
@@ -190,6 +193,10 @@ requireContract(/class = "app-skip", href = "#site-picker-start"/.test(ui), "app
 requireContract(/id = "site-picker-start", class = "picker-map-wrap", tabindex = "-1"/.test(firstImpression), "picker must be a focusable CTA target");
 requireContract(!/class = "splash-guide"/.test(firstImpression), "floating mascot prompt remains on the first impression");
 requireContract(/inverts-living-poster-v2-840\.webp/.test(appPoster) && /inverts-living-poster-v2\.webp/.test(appPoster) && /inverts-living-poster-v2\.png/.test(appPoster), "app responsive art set is incomplete");
+requireContract(/alt = paste\(/.test(appPoster)
+  && /Editorial screenprint of a mayfly nymph/.test(appPoster)
+  && /leaves beside field tags\./.test(appPoster),
+  "app poster artwork needs the reviewed descriptive alt");
 requireContract(/Editorial illustration—not a field photograph or data record\./.test(appPoster), "app art/data boundary is missing");
 requireContract(/@media \(max-width: 900px\)/.test(posterCss), "app poster tablet seam is missing");
 requireContract(/@media \(max-width: 420px\) and \(max-height: 860px\)/.test(posterCss), "app poster short-phone seam is missing");
@@ -288,14 +295,15 @@ requireContract(/branches: \[main\]/.test(postDeployWorkflow)
   && /node scripts\/post_deploy_browser\.mjs/.test(postDeployWorkflow),
 "content-aware post-deploy workflow is not wired to main");
 requireContract(npmPackage.private === true
-  && npmPackage.devDependencies?.playwright === "1.55.0"
+  && npmPackage.scripts?.["check:cover"] === "node scripts/check_cover.mjs"
+  && npmPackage.devDependencies?.playwright === "1.55.1"
   && npmLock.lockfileVersion === 3
-  && npmLock.packages?.["node_modules/playwright"]?.version === "1.55.0"
+  && npmLock.packages?.["node_modules/playwright"]?.version === "1.55.1"
   && npmLock.packages?.["node_modules/playwright"]?.integrity
-    === "sha512-sdCWStblvV1YU909Xqx0DhOjPZE4/5lJsIS84IfN9dAZfcl/CIZ5O8l3o0j7hPMjDvqoTF8ZUcc+i/GL5erstA=="
-  && npmLock.packages?.["node_modules/playwright-core"]?.version === "1.55.0"
+    === "sha512-cJW4Xd/G3v5ovXtJJ52MAOclqeac9S/aGGgRzLabuF8TnIb6xHvMzKIa6JmrRzUkeXJgfL1MhukP0NK6l39h3A=="
+  && npmLock.packages?.["node_modules/playwright-core"]?.version === "1.55.1"
   && npmLock.packages?.["node_modules/playwright-core"]?.integrity
-    === "sha512-GvZs4vU3U5ro2nZpeiwyb0zuFaqb9sUiAJuyrWpcGouD8y9/HLgGbNRjIph7zU9D3hnPaisMl9zG9CgFi/biIg==",
+    === "sha512-Z6Mh9mkwX+zxSlHqdr5AOcJnfp+xUWLCt9uKV18fhzA8eyxUd8NUWzAjxUh55RZKSYwDGX0cfaySdhZJGMoJ+w==",
 "post-deploy Playwright dependency tree is not version- and integrity-locked");
 requireContract(/ddl-release-instance/.test(postDeploySmoke)
   && /release\.json/.test(postDeploySmoke)
@@ -309,12 +317,50 @@ requireContract(/#nationalPicker/.test(postDeployBrowser)
   && /canonicalSites\.every/.test(postDeployBrowser)
   && /\.synth-banner/.test(postDeployBrowser)
   && /hasText: "SYCA"/.test(postDeployBrowser)
-  && /field opportunities/.test(postDeployBrowser)
-  && /value > 0/.test(postDeployBrowser)
+  && /const expectedSycaStats = \[/.test(postDeployBrowser)
+  && /label: "field opportunities", value: "193"/.test(postDeployBrowser)
+  && /label: "count-eligible", value: "121"/.test(postDeployBrowser)
+  && /label: "density-eligible", value: "121"/.test(postDeployBrowser)
+  && /label: "mixed-rank taxa recorded", value: "245"/.test(postDeployBrowser)
+  && /label: "collection events", value: "17"/.test(postDeployBrowser)
+  && /counter\?\.dataset\.target === value/.test(postDeployBrowser)
+  && /counter\.textContent\.trim\(\) === value/.test(postDeployBrowser)
   && /#help/.test(postDeployBrowser)
   && /How to read My Little Inverts/.test(postDeployBrowser)
   && /ddl-release-instance/.test(postDeployBrowser),
 "post-deploy browser gate does not prove an exact live Shiny round trip");
+requireContract(/const pagesFiles = \[/.test(postDeployBrowser)
+  && /docs\/index\.html/.test(postDeployBrowser)
+  && /docs\/og-image-v2\.png/.test(postDeployBrowser)
+  && /docs\/assets\/inverts-living-poster-v2-840\.webp/.test(postDeployBrowser)
+  && /verifyExactPagesBytes/.test(postDeployBrowser)
+  && /observedHash !== expectedHash/.test(postDeployBrowser),
+  "post-deploy browser gate does not byte-verify the reviewed Pages surface");
+requireContract(/width: 1280, height: 900/.test(postDeployBrowser)
+  && /width: 390, height: 844/.test(postDeployBrowser)
+  && /width: 320, height: 568/.test(postDeployBrowser)
+  && /horizontalOverflow/.test(postDeployBrowser)
+  && /headerOverlap/.test(postDeployBrowser)
+  && /requireKeyboardFocus/.test(postDeployBrowser)
+  && /naturalWidth > 0/.test(postDeployBrowser),
+  "post-deploy browser gate does not render-check Pages at desktop/390/320");
+requireContract(/const connectViewports = \[/.test(postDeployBrowser)
+  && /verifyConnectViewport/.test(postDeployBrowser)
+  && /page\.setViewportSize\(\{ width: viewport\.width, height: viewport\.height \}\)/.test(postDeployBrowser)
+  && /connectRendered\.mobileOrderBad/.test(postDeployBrowser)
+  && /connectRendered\.headerOverlap/.test(postDeployBrowser)
+  && /connectRendered\.posterAnimations/.test(postDeployBrowser)
+  && /requireKeyboardFocus\(page, "\.app-skip", "Connect 320px skip link"\)/.test(postDeployBrowser)
+  && /document\.activeElement\?\.id === "site-picker-start"/.test(postDeployBrowser),
+  "post-deploy browser gate does not render-check Connect at desktop/390/320 with keyboard skip focus");
+requireContract(/page\.on\("console"/.test(postDeployBrowser)
+  && /page\.on\("pageerror"/.test(postDeployBrowser)
+  && /page\.on\("requestfailed"/.test(postDeployBrowser)
+  && /response\.status\(\) >= 400/.test(postDeployBrowser)
+  && /sameOrigin\(response\.url\(\), expectedOrigin\)/.test(postDeployBrowser)
+  && /appSurface\.artLoaded/.test(postDeployBrowser)
+  && /appSurface\.posterCss/.test(postDeployBrowser),
+  "post-deploy Connect gate does not reject browser/resource/render failures");
 const browserRosterBlock = postDeployBrowser.match(
   /const expectedSites = \[([\s\S]*?)\];/,
 );

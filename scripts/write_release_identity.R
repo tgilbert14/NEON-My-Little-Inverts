@@ -112,10 +112,19 @@ MANIFEST_DOMAIN <- "neon-connect-manifest-contract-v1"
 MANIFEST_SOURCES_DOMAIN <- "neon-connect-manifest-source-list-v1"
 BUNDLE_DOMAIN <- "neon-inverts-bundle-family-v1"
 PAYLOAD_DOMAIN <- "neon-inverts-runtime-payload-v1"
-PAGES_DOMAIN <- "neon-inverts-pages-payload-v1"
+PAGES_DOMAIN <- "neon-inverts-pages-payload-v2"
 DEPLOYED_R_HELPERS <- c(
   "R/inv_helpers.R", "R/report_pdf.R", "R/site_metadata.R"
 )
+PAGES_STATIC_FILES <- c(
+  "docs/.nojekyll",
+  "docs/index.html",
+  "docs/og-image-v2.png",
+  "docs/assets/inverts-living-poster-v2-840.webp",
+  "docs/assets/inverts-living-poster-v2.png",
+  "docs/assets/inverts-living-poster-v2.webp"
+)
+PAGES_HANDOFF_FILE <- "docs/BUILD-TEST-HANDOFF.md"
 
 EXPECTED_SITES <- c(
   "ARIK", "BARC", "BIGC", "BLDE", "BLUE", "BLWA", "CARI", "COMO",
@@ -717,14 +726,44 @@ manifest_contract_sha256 <- sha256_text(
   MANIFEST_DOMAIN, manifest_contract_json
 )
 
-pages_paths <- setdiff(
-  normalize_relative(files_below("docs", all_files = TRUE)),
-  "docs/release.json"
-)
-required_pages <- c("docs/index.html", "docs/og-image-v2.png")
-if (length(setdiff(required_pages, pages_paths))) {
-  stop("Pages payload lacks the cover or social image.", call. = FALSE)
+pages_inventory <- normalize_relative(files_below("docs", all_files = TRUE))
+pages_markdown <- pages_inventory[
+  grepl("^docs/[^/]+[.]md$", pages_inventory)
+]
+if (!PAGES_HANDOFF_FILE %in% pages_markdown) {
+  stop("Pages payload lacks the exact build/test handoff.", call. = FALSE)
 }
+allowed_pages_inventory <- normalize_relative(c(
+  PAGES_STATIC_FILES, pages_markdown,
+  if (pages_relative %in% pages_inventory) pages_relative else character()
+))
+if (!identical(pages_inventory, allowed_pages_inventory)) {
+  unexpected_pages <- setdiff(pages_inventory, allowed_pages_inventory)
+  missing_pages <- setdiff(PAGES_STATIC_FILES, pages_inventory)
+  stop(
+    paste0(
+      "Pages payload inventory is not exact",
+      if (length(unexpected_pages)) paste0(
+        "; unexpected: ", paste(unexpected_pages, collapse = ", ")
+      ) else "",
+      if (length(missing_pages)) paste0(
+        "; missing: ", paste(missing_pages, collapse = ", ")
+      ) else "",
+      "."
+    ),
+    call. = FALSE
+  )
+}
+if (identical(MODE, "verify") && WRITE_PAGES &&
+    !pages_relative %in% pages_inventory) {
+  stop("Pages payload lacks its generated release receipt.", call. = FALSE)
+}
+# The generated receipt is cycle-breaking output. The exact handoff path is
+# required above, but its mutable session-log bytes are the sole authored Pages
+# bytes excluded from identity. Every other root-level docs/*.md file is bound.
+pages_paths <- normalize_relative(c(
+  PAGES_STATIC_FILES, setdiff(pages_markdown, PAGES_HANDOFF_FILE)
+))
 assert_safe_paths(pages_paths, "Pages payload")
 pages_payload_sha256 <- hash_family(pages_paths, PAGES_DOMAIN)
 

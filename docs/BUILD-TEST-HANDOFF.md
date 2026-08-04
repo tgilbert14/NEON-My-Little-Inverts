@@ -1,137 +1,258 @@
-# My Little Inverts — Build/Test Handoff
+# My Little Inverts — build/test handoff
 
-## 2026-08-03 — Refresh provenance production closeout
+## 2026-08-04 — Pass-9 authoritative runtime release complete
 
-- The final provenance repair head
-  `3d116fa849cf7c23fc0a1e7334a28bebcf9f4a45` produced direct-child candidate
-  `d9a3d1c60252b286b5cf708949cb14589aa6de59` through authoritative refresh run
-  `30825083094`. The candidate changed only `data/site_index.rds`,
-  `data/cross_site.rds`, `data/search_index.rds`, and `manifest.json`; all three
-  RDS files decode semantically identically to the reviewed parent. The exact
-  34-site family remains 830 bouts, 6,430 samples, and 9,392 search rows with
-  source stamp `2026-06-22`.
-- Manifest SHA-256 is
-  `a6b5056f4c786f8cbbccc8613cdbed80eebbb1d76ac4894df867247be8914c98`:
-  R 4.5.2, 91 packages, and 48 runtime files. Plotly 4.12.0 and the eight-package
-  geospatial closure retain their exact reviewed source URLs; ordinary packages
-  use only the dated 2026-07-15 RSPM lane. No moving repository, nonstandard
-  ordinary remote, or validator wall-clock survives the independent verifier.
-- PR #4 literal-head run `30826225675` passed its gate, producer, and independent
-  validator on exact candidate `d9a3d1c`; the publisher skipped exactly as
-  required for a pull-request event. Producer artifact `8860977085` is 638,768
-  bytes with digest
-  `sha256:7a1e4586c579940c0106d43df9a61f3185e0d51ea06c7d52ecbefed7bba7dae2`.
-  Validated artifact `8861539561` is 817,458 bytes with digest
-  `sha256:def6fdd51e1cfeb56e8db3b3ead34edcc9f4df9fab9710b53bc6090387f82fe4`.
-  PR #4 merged with expected-head protection as
-  `fd509ae6821aae556a51ac05820e7f4f5dafbad5`.
-- Pages deployment `30827939797` passed build `91734298591`, deploy
-  `91734337815`, and status `91734337893` on that exact merge. Its 37,949-byte
-  artifact `8861650932` has digest
-  `sha256:dd9c75093fa2e1cfeb75da63b6c3909a0882c8520d59510e5278d3991d02d995`.
-  The live 47,895-byte Pages response is byte-identical to merged
-  `docs/index.html` (both SHA-256
-  `11b4deac721d62a638f382475a0c7e2b7acac3b5e5bd40eca218756612147f45`).
-  Connect returned a real Shiny application with the 34-site picker and expected
-  Shiny 1.14.0, Plotly 4.12.0, Leaflet, and DT dependencies; it did not return an
-  error/startup page.
-- Exact Connect commit provenance is deliberately not claimed: this repository
-  has no push-triggered semantic smoke or runtime receipt, so the public boot
-  proves availability but does not bind the served worker to `fd509ae`. Pass 9
-  should add a content-aware production marker/receipt and repair the existing
-  missing `og-image.png` reference as part of the full product review.
-- The README now matches the released authority: scheduled refreshes reuse the
-  committed family, a full fetch is explicit/manual, validated bytes may update
-  only the fixed review branch, and `main` should remain protected. The former
-  direct-main/unprotected-branch instructions are superseded and unsafe.
-- This closeout is `suite-platform` documentation only. No app, bundle, metric,
-  estimator, manifest, Pages, Connect, or Driver byte changes; My Little Inverts
-  remains `PASS 9 PENDING / provisional CONTEXT` until its scientific and product
-  pass is complete.
+### Current position
 
-Next action: validate and merge this documentation-only authority, then keep the
-Pass 9 science/product review separate from the already-repaired refresh path.
+- Reviewed science head:
+  `6043c400afb21425d7c319e8225b9693fae416da` (`fix: validate canonical
+  invert metadata`).
+- Publication head:
+  `a685e01c61938fcbd49325d7cf365aa272fae58a` (`fix: validate pinned Inverts
+  icons early`).
+- Authoritative publication attempt: `30885526988`.
+- Corrected workflow status at this handoff: **complete success**. Gate job
+  `91915773284`, producer job `91915789152`, validator job `91920084679`, and
+  restricted publisher job `91924715580` are green.
+- Direct-child candidate `b7dffb6c…` passed exact-head PR workflow
+  `30888675725` and merged with expected-head protection as `ff23e994…`.
+- Pages deployment `30890184235`, Connect publication #17, and production
+  verification `30890185880` are green on that exact merge and release identity.
+- The staged governance changes strengthen the production browser gate: live
+  Pages index/art/social-image bytes must match the reviewed checkout; the cover
+  must render without horizontal clipping at 1280, 390, and 320 px with visible
+  keyboard focus; and Connect must reject console, page, request, same-origin
+  HTTP, stylesheet, or poster-image failures before its Shiny round trip passes.
 
-## 2026-08-03 — Scheduled-refresh repair
+### Current source-authoritative receipt and producer evidence
 
-Start status: production `main` was healthy at `b370274`, with 34 committed site bundles. The 2026-08-02 scheduled refresh fetched and rebuilt data, then failed while generating `manifest.json` because the refresh environment omitted `cpp11`. The same workflow mistakenly selected the heavy fetch on schedules, tolerated a 28-site floor, rebased with `|| true`, and pushed data directly to `main`.
+Run `30885526988` at publication head
+`a685e01c61938fcbd49325d7cf365aa272fae58a` fetched at
+`2026-08-04T07:08:55Z` and passed its source and producer gates. Independent
+local handoff verification also passed. It produced source artifact
+`8883372756`, reported with the name prefix `invert-source-a685…`:
 
-End status: code-only repair prepared; no bundle or manifest bytes were regenerated or staged.
+| Evidence | Exact value |
+| --- | --- |
+| Source artifact API zip | 15,554,711 bytes |
+| Source artifact API digest | `sha256:80d94fff2e7835d6e407e06bc9ca8b4995500ff4346ef979128fa8fe61196468` |
+| Raw RDS | 15,755,405 bytes |
+| Raw RDS SHA-256 | `13345d39682bcc27ec45fca490cd63888b18c98735e6575737a79c6c109b67d0` |
+| Fetch evidence SHA-256 | `c2e792d513c875c8f38d78fa76f84c0478c0954eeac48b75405979248f10d415` |
+| Source receipt SHA-256 | `0426ccdc31b4db9e00e768e90ad28918df533fc271078ead42c31293ff138a28` |
+| Citation SHA-256 | `4cc2f4603c86cec78b43e5024cf729c1de87d74c31786098faae6031f4c075ab` |
+| Maximum source publication date | `2025-12-09` |
 
-The committed manifest currently carries nine stale app/data checksums from earlier source changes. That known-good baseline is left untouched here; PR validation regenerates the manifest ephemerally, and the first post-merge refresh will propose the corrected bytes through review.
+Producer artifact `8883439067` is a 10,457,625-byte API zip with digest
+`sha256:90b92ac47492552cf6cb63fa93c194139ca5db4600cb152e3f373f410d40b567`.
+Its inner release tarball SHA-256 is
+`64883e4d6e13129c7f4d4ac445405c58c12dff6d9afeb4f539822646090122bd`,
+and its release-contract SHA-256 is
+`15f5686f7f048ad72f1552ada78b2328eeb5718fd27bb2ebd44ddf24312e44bf`.
+The producer allowlist is exactly the release contract, receipt, and 34 site
+files; its embedded receipt is byte-identical to the authoritative source
+receipt.
 
-- Pinned the workflow to Ubuntu 22.04, R 4.5.2, and the 2026-07-15 Posit Package Manager snapshot; added `cpp11` to the validator/runtime closure. Manifest regeneration replaces residual `cran.rstudio.com` `RemoteRepos` as well as moving CRAN/RSPM `latest`, and the verifier rejects any recurrence.
-- Made the NEON fetch manual-only when `workflow_dispatch` explicitly sets `skip_download=false`. Scheduled runs reuse committed site bundles. `NEON_TOKEN` is scoped to that one manual fetch step and is absent from pull-request code.
-- Replaced direct-main publication with producer artifact → clean independent validator → restricted review-branch publisher. Pull requests run the same validator against their exact head. The publisher rejects stale bases, requires a direct-child candidate commit, uses force-with-lease, verifies the exact remote SHA and any exact head/base PR identity, and otherwise leaves a reviewer-authenticated compare link. It never creates or approves a PR.
-- Added `scripts/verify_refresh_candidate.R`: base R + `jsonlite` enforce the exact 34-site roster; per-site non-shrink for bouts and samples; no loss of early or latest year coverage; bundle/index structure; deterministic source stamp; canonical SYCA demo; exact data inventory; and every manifest MD5.
-- Producer, validator, and publisher tarballs now enumerate the 34 site bundles and five derived/release files exactly. Archive members are checked before extraction and the publisher stages only that allowlist, so an extra generated or untracked data path fails closed.
-- Replaced `Sys.Date()` in the search index with the maximum ISO date from committed `meta$built` bundle receipts. Scientific estimators and per-site bundle construction are unchanged.
+The receipt-bound source inventories 7,201 field rows, 6,446 per-sample rows,
+and 320,240 taxonomy rows. Three `.DNA` field rows remain quarantined, leaving
+7,198 collection opportunities at the canonical 34 sites. Producer reconciliation
+matches the independently replayed diagnostic source: 830 events, 1,679 exact
+event strata, 6,477 primary-stratum opportunities, 6,213 count eligible, 6,213
+density eligible, 719 unstratifiable, 181,922 collapsed taxonomy records, and
+85,874 search rows. The source stamp is `2025-12-09`, and the release family
+contains 55 checksums.
 
-Local evidence: the workflow parses as YAML and all eight embedded run blocks pass `bash -n`; changed R files parse; `git diff --check` passes; a focused 34-site fixture passed the complete verifier at 830 bouts, 6,430 samples, and 9,392 search rows; a deliberate SYCA sample-count shrink and an extra manifest data path were both rejected.
+### Validated candidate and completed runtime release
 
-Before merging, run the code-only workflow on the proposed head, review its exact-head checks, open the generated compare link as a repository reviewer, and merge only after the PR checks are green.
+Validated artifact `8883990535` is an 11,001,544-byte API zip with digest
+`sha256:ec37be5bd0f3fe56cb9dde50e56f80193af024b7aa5a233bc5749db29f55b22d`.
+Its inner 10,998,101-byte release tarball has SHA-256
+`6aa5903dbb292f93c6c4c142a5cf7378322c8ca3c1845b4b47ad100012bf0c10`.
+The exact 43-member allowlist is 34 site files plus the release contract,
+receipt, site index, cross-site file, search index, demo file, manifest,
+production identity, and docs release.
 
-## 2026-08-03 · Refresh publisher and manifest provenance repair
+Candidate `b7dffb6c1e149c52d094c4347483435df07856f6` has sole parent
+`a685e01c61938fcbd49325d7cf365aa272fae58a`. All 43 candidate-branch files
+match the validated artifact byte for byte. The identity/docs-receipt SHA-256 is
+`f0be51e0da7cc41176abdda57c52e202019579c1df3890e6ab7df18f8a1a1f46`,
+the manifest SHA-256 is
+`26b94b5e8ddc5e22618ad47faf1b388802dfa76354fd38f0a33a5c4c1a0eb8d2`,
+and the release ID is
+`sha256:fcee160ddb5e6ecedbca84811dea57993263507bbb8c38570b5243d5d7644ee5`.
+Package proof is dated and contains no `cran.rstudio.com` reference.
 
-- Scheduled refreshes had completed candidate production and independent
-  validation but failed while publishing the review branch. PR #3 repaired that
-  boundary and merged as `d1af49817e52381b2a519f3c3d68e7c32b175003`.
-- Post-repair workflow run `30819110562` passed producer, validator, and restricted
-  publisher. It published candidate `39e169fe046bb01d9a16fec83b0b8330fdcd94ec`
-  as a direct child of that merge. The three regenerated RDS indexes decode
-  identically to `main`; their byte differences are serialization-only.
-- Pre-PR semantic review correctly held that candidate. Its regenerated manifest
-  retained exact source URLs but exposed the geospatial packages through symbolic
-  `Source=URL` / `Repository=RSPM` deployment fields and kept validator wall-clock
-  `Built` values. Connect treats the top-level repository as a network location,
-  so this was not safe to merge despite green validation.
-- This follow-up removes the old version-rewrite escape hatch, requires Plotly
-  4.12.0 and the complete eight-package geospatial closure from exact retained
-  URLs, validates actual installed versions/origins before canonicalization, gives
-  Connect absolute deployment lanes, strips only non-semantic exact-source build
-  clocks, and independently rechecks the complete provenance contract.
-- No runtime, scientific helper, bundled observation, Pages, Connect, or Driver
-  byte is changed by the repair commit. The review candidate must be regenerated
-  from this exact branch, compared semantically, and pass exact-head PR checks
-  before merge. Candidate `39e169f` is diagnostic evidence only and is superseded.
+Human-authored, non-draft [PR #6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6)
+has exact head `b7dffb6c1e149c52d094c4347483435df07856f6`. PR workflow
+`30888675725` completed successfully: gate `91925475929`, producer
+`91925500126`, and validator `91926069602` are green; restricted publisher job
+`91930036661` is skipped with zero steps by design. The exact candidate merged
+as `ff23e994e289982c747b91e48c5ff0907c1672d2` on 2026-08-04.
 
-Next action: publish this focused repair, dispatch the skip-download refresh on its
-exact branch, inspect the replacement review candidate, then open and merge the
-combined exact-head PR only after all gates pass.
+Pages run `30890184235` succeeded on that merge. Connect publication #17
+(`019fcbca-a610-e368-7562-54b93e2056d0`) successfully published the same commit
+with R 4.5.2, `bslib` 0.11.0, `bsicons` 0.1.2, and `plotly` 4.12.0. Production
+verification run `30890185880`, smoke job `91930207585`, passed exact Pages and
+Connect HTTP identity plus a live bidirectional Shiny session. Independent
+signed-in QA also confirmed the local Living Poster, Leaflet map, all-34-site
+picker, SYCA's five hero statistics (including 193 field opportunities), the
+server-backed Help modal, no horizontal overflow at desktop width, and no
+browser errors.
 
-## 2026-08-03 · Ordinary-package manifest alias follow-up
+### Safe failures and the exact repairs
 
-- Restricted refresh `30822032342` proved the producer boundary and stopped
-  safely in the clean validator. `rsconnect::writeManifest()` represented
-  ordinary CRAN packages with `https://cloud.r-project.org` even though both
-  workflow repository controls were pinned to the dated 2026-07-15 RSPM
-  snapshot. The publisher was skipped, so no candidate branch or production byte
-  changed.
-- The manifest writer now accepts that one rsconnect ordinary-CRAN alias only
-  when `RSPM` and `RENV_CONFIG_REPOS_OVERRIDE` both equal the exact dated
-  snapshot. It still rejects `cran.rstudio.com`, `latest`, non-CRAN sources, and
-  nonstandard remotes; exact Plotly and geospatial URL origins remain mandatory.
-- Only after those installed-origin checks pass does the writer replace ordinary
-  package deployment fields with the dated snapshot. The independent candidate
-  verifier still accepts only the final dated-snapshot form, and a new
-  post-canonicalization gate rejects any remaining moving repository.
+1. Full run `30876585674` on `cd2f6c0` completed the source download but stopped
+   before an authoritative receipt or candidate. `variables_20120` was a real
+   `data.table/data.frame`; its process-local `.internal.selfref` external pointer
+   changed persisted-byte round-trip evidence.
+2. `60bb041ae4d1d78cba023efce86c25ead1a1b7f7` canonicalized only that volatile
+   attribute, preserving class, columns, and every other attribute.
+3. Full run `30878052158` then stopped before a receipt or candidate because
+   base-data-frame column-selection syntax dispatched through `[.data.table` in
+   the clean source validator.
+4. `6043c400afb21425d7c319e8225b9693fae416da` added read-only metadata projection
+   through `[[`, with real `data.table` adversarial tests and serialized-source
+   equality before/after validation.
+5. Full run `30880052469` passed source and producer gates but stopped in the
+   clean validator before identity stamping or candidate publication. The pinned
+   `setup-r` action had configured a moving `https://cran.rstudio.com` fallback,
+   so `bslib` 0.12.0 displaced snapshot-retained 0.11.0 and the manifest
+   provenance gate correctly failed.
+6. `c1bd68184f06c4a011806193ce511f367d92d1ea` pins both configured
+   repositories to the dated RELEASE-2026 snapshot, installs the retained
+   `bslib` source URL explicitly, and independently verifies its URL provenance.
+7. Full run `30882432569` passed all source, science, producer, release,
+   loaded-app, and candidate checks: 143 source, 109 science, 43 producer, 58
+   release-verifier, and 104 loaded-app checks. Its 34-site candidate inventory
+   reconciled 7,198 opportunities, 6,213 count eligible, 6,213 density eligible,
+   719 unstratifiable, 85,874 search rows, source stamp `2025-12-09`, and 55
+   checksums. Package-pin proof was clean, with zero `cran.rstudio.com`
+   references. The final full-UI source gate then failed because `bsicons` 0.1.2
+   rejected the nonexistent icon name `scatter-chart`. Validated packaging,
+   upload, and restricted publisher steps were skipped; no candidate branch or
+   PR was created.
+8. `a685e01c61938fcbd49325d7cf365aa272fae58a` replaces `scatter-chart` with
+   valid `graph-up`, adds exact-package icon inventory/render regression, pins
+   the exact `bsicons` source in early producer dependencies, and adds an early
+   validator gate. Run `30885526988` completed successfully through its
+   restricted publisher and produced direct-child candidate `b7dffb6c…`.
 
-Next action: run the restricted skip-download refresh again from this exact
-repair head. Review and merge only its direct-child candidate after semantic
-comparison and green literal-head CI.
+Run `30882432569`'s evidence is retained only as safe failed history. It fetched
+at `2026-08-04T06:13:33Z`; its source artifact `8882105960` had API digest
+`sha256:485c05f2612bf810109c74004a29057ba38a7ae159ec749cd7403b8f8fc5bbe7`;
+the raw RDS SHA-256 was
+`f471421791853c8a7047a4276c7b9ab5cf6b800b342af11ae8f7a22ac4f8f47e`,
+the fetch-evidence SHA-256 was
+`a8f98aa0d116d086da0ff05166152c93fb12f75c5ff41e55e90d8e9f47240c12`,
+and the source-receipt SHA-256 was
+`26fcb9193813440bbd69a349fde70b875347f1219a4474026c144618872a2ed1`.
+Its producer artifact `8882157880` had API digest
+`sha256:a380395b4b12b846229d69189f23dd6fc73e11b960bafeb068cbefe4e2691761`,
+inner release-tarball SHA-256
+`7b2fe393709f673f17291245e597dee5faafd510f0f01073b009ad9f37eb201d`,
+and release-contract SHA-256
+`5f8ab8088957bf4c8dcf17b02292022ec3985cfabb5ab97a6e04963888002d1b`.
+None of those hashes belongs to current run `30885526988`.
 
-## 2026-08-03 · Independent ordinary-remote verifier hardening
+Run `30880052469` remains safe failed history, not current release authority. Its
+source artifact `8881240077` contained a 15,755,274-byte raw RDS with SHA-256
+`b8ab62bad995101f3da4bc04c133cf4705b8e0d942a925774a4424a56f3faed2`;
+its source receipt SHA-256 was
+`5369b6bc2940e3e02658afa01d44c89ff47d030af519d27c2c7a296135e881dd`.
+Its producer artifact was `8881289043`, with API digest
+`sha256:c4edadeff5b8fedfddd14dc4490e5041145b7c13b7bc56e2287157a56130ee73`.
+Those receipts bind only that failed run's exact source/producer evidence and
+grant no candidate or production authority.
 
-- A separate adversarial audit proved the writer already rejects ordinary
-  package records with `RemoteType=url` or `RemoteType=github`, but the clean
-  candidate verifier checked `RemoteRepos` only when `RemoteType=standard`.
-  A hand-tampered manifest could therefore pass the verifier if it kept the
-  dated top-level CRAN lane while adding an arbitrary URL or GitHub ref.
-- The independent verifier now permits only an empty remote type (for
-  recommended/base records) or `standard` (with the exact dated
-  `RemoteRepos`). URL/GitHub ordinary-package records fail independently of the
-  writer. Exact Plotly and geospatial URL records remain separately allowlisted
-  and fully pinned.
-- Refresh `30824016239` began before this verifier hardening and is evidence for
-  the writer alias fix only. Even if green, its candidate is superseded and must
-  not be merged; the restricted workflow must rerun on the new exact head.
+Run `30878052158` preserved nonauthoritative raw source artifact `8880476751`.
+Its raw RDS is 15,755,404 bytes with SHA-256
+`6e36b6653f0a05f5ab86dbe5b009b61215d3a83e67f0cbed1493472539d86f9e`.
+It is safe-failure evidence only: its fetch-evidence record said
+`publication_authorized=false`, and the run published no authoritative receipt,
+candidate, review branch, or production byte.
+
+### Exact local replay evidence
+
+Before spending a third full network fetch, `6043c40` was replayed in a disposable
+checkout against the preserved `6e36b6…` raw RDS:
+
+- source fixtures: 143 checks;
+- science fixtures: 109 checks;
+- producer fixtures: 43 checks;
+- release-verifier fixtures: 58 checks;
+- loaded-app fixtures: 104 checks;
+- the real source object passed with `data.table` loaded and serialized
+  identically before/after validation;
+- the raw-to-34-site producer and independent verifier completed; and
+- a second clean build matched all 40 release-family files byte for byte while
+  streaming verification retained at most one fully loaded site bundle.
+
+That replay proved the code path and justified run `30880052469`; it did not
+convert the earlier evidence artifact into publication authority. Run
+`30882432569` created and passed the source and producer gates for its own
+receipt and producer artifact, then failed safely at the final full-UI source
+gate before validated packaging or publication. Its evidence remains bound to
+that failed attempt. Run `30885526988` completed its own source, producer,
+independent validator, and restricted publisher gates and produced the validated
+direct-child candidate reviewed in PR #6. Exact-head checks, expected-head
+merge, Pages, Connect, and live production authority are now complete.
+
+### Release identifiers to fill only from exact evidence
+
+| Gate | Identifier |
+| --- | --- |
+| Direct-child reviewed candidate | `b7dffb6c1e149c52d094c4347483435df07856f6` |
+| Reviewer-authenticated exact-head PR | [#6](https://github.com/tgilbert14/NEON-My-Little-Inverts/pull/6), head `b7dffb6c1e149c52d094c4347483435df07856f6` |
+| Expected-head merge to `main` | `ff23e994e289982c747b91e48c5ff0907c1672d2` |
+| Exact-merge Pages run / identity | `30890184235` / `sha256:fcee160ddb5e6ecedbca84811dea57993263507bbb8c38570b5243d5d7644ee5` |
+| Connect publication / live round trip | #17 (`019fcbca-a610-e368-7562-54b93e2056d0`) / production run `30890185880`, job `91930207585` |
+
+Next action: publish the staged governance and enhanced browser-gate changes
+through the committed-family (`skip_download=true`) producer/validator path,
+review and merge only its exact direct-child candidate, and repeat the exact
+Pages/Connect identity plus enhanced responsive/live Shiny production gate.
+
+## 2026-08-03 — Previous production baseline
+
+This was the live baseline before Pass 9 completed; preserve it for rollback
+and comparison.
+
+- Provenance repair head `3d116fa849cf7c23fc0a1e7334a28bebcf9f4a45`
+  produced direct-child candidate
+  `d9a3d1c60252b286b5cf708949cb14589aa6de59` in run `30825083094`.
+- PR #4 literal-head run `30826225675` passed and PR #4 merged with expected-head
+  protection as `fd509ae6821aae556a51ac05820e7f4f5dafbad5`.
+- Pages deployment `30827939797` passed on that merge. The live Pages response
+  was byte-identical to merged `docs/index.html`, SHA-256
+  `11b4deac721d62a638f382475a0c7e2b7acac3b5e5bd40eca218756612147f45`.
+- Connect returned a real 34-site Shiny app, but the old release had no exact
+  runtime identity receipt. Availability therefore did not bind the worker to
+  `fd509ae`; Pass 9's content-aware post-deploy gate replaces that gap.
+
+The previous bundle family was taxonomy-first (830 bouts, 6,430 samples, 9,392
+search rows, source stamp `2026-06-22`). Do not use those figures as Pass-9 data
+takeaways.
+
+## 2026-08-03 — Refresh-platform repair history
+
+The repair series is useful platform evidence:
+
+- The scheduled workflow was changed from direct-main/heavy-fetch behavior to a
+  manual-only full fetch and scheduled committed-family rebuild. Publication now
+  follows producer → independent validator → restricted review branch.
+- PR #3 merged the first publisher repair as
+  `d1af49817e52381b2a519f3c3d68e7c32b175003`; run `30819110562` published
+  diagnostic candidate `39e169fe046bb01d9a16fec83b0b8330fdcd94ec`, which was
+  correctly held for manifest provenance concerns and never merged.
+- Run `30822032342` then failed safely when `rsconnect::writeManifest()` exposed a
+  moving ordinary-CRAN alias. The writer now accepts that alias only under the
+  exact dated RSPM controls and canonicalizes the final deployment lane.
+- An adversarial audit closed a verifier gap for ordinary URL/GitHub remotes;
+  only empty/base or standard dated-RSPM records are allowed outside the exact
+  Plotly/geospatial URL allowlist. Run `30824016239` predated that hardening and
+  remained superseded even if otherwise green.
+- The validated publication baseline ultimately reached PR #4 and `fd509ae` as
+  recorded above.
+
+These failures changed no production bytes until an exact reviewed candidate
+merged. Retain that distinction in future incident reports.

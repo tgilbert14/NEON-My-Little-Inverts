@@ -2,8 +2,11 @@
   "name": "neon-my-little-inverts-ci",
   "version": "1.0.0",
   "private": true,
-  "description": "Locked browser dependency for the post-deploy Connect session probe.",
+  "description": "Locked browser dependency for the post-deploy Pages and Connect probes.",
+  "scripts": {
+    "check:cover": "node scripts/check_cover.mjs"
+  },
   "devDependencies": {
-    "playwright": "1.55.0"
+    "playwright": "1.55.1"
   }
 }
