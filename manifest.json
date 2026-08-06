@@ -3230,13 +3230,13 @@
       "checksum": "c0ffd7ed477bce9c38e90d09338ee1a1"
     },
     "release/production-identity.json": {
-      "checksum": "3e2a7e8df1cfe13bcc7114e3c5df36d1"
+      "checksum": "deb0ef997d9031ea0e20bdf41fe2c754"
     },
     "server.R": {
       "checksum": "acc1567c3f4726a50179cb40a42f354c"
     },
     "ui.R": {
-      "checksum": "77f73e273769daa789bb871cbb8d2f80"
+      "checksum": "2ecc71d16f13e7a36b901ae11c430491"
     },
     "www/app.js": {
       "checksum": "1b45caea68fffbb579d9b39ff6fac63d"
@@ -3257,7 +3257,7 @@
       "checksum": "2a1dedcb088e9ce45a9e2179ce520a87"
     },
     "www/poster.css": {
-      "checksum": "66a2b4edc26ce06402e673c736852d1b"
+      "checksum": "c29bb65d7e8bc75779aeb3cc26f78866"
     },
     "www/styles.css": {
       "checksum": "7daaa6415f512f9e9614f21edc83a670"
