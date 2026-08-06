@@ -217,7 +217,7 @@ async function verifyPagesViewport(browser, viewport, revision) {
     const rendered = await page.evaluate(({ width }) => {
       const selectors = [
         ".topline", ".brand", ".suite-jump", ".poster-copy", "h1",
-        ".promise", ".button", ".art-note", ".footer-inner", ".footer-links",
+        ".promise", ".button", ".footer-inner", ".footer-links",
       ];
       const clipped = selectors.flatMap((selector) => {
         const element = document.querySelector(selector);
@@ -254,6 +254,7 @@ async function verifyPagesViewport(browser, viewport, revision) {
           && image.naturalHeight > 0),
         artOrigin: imageUrl?.origin || "",
         artPath: imageUrl?.pathname || "",
+        badgeAbsent: !document.querySelector(".art-note, .poster-art figcaption"),
         animations: document.getAnimations({ subtree: true })
           .filter((animation) => animation.playState !== "finished").length,
       };
@@ -287,6 +288,9 @@ async function verifyPagesViewport(browser, viewport, revision) {
         + `(${rendered.artOrigin}${rendered.artPath})`,
       );
     }
+    if (!rendered.badgeAbsent) {
+      fail(`Pages ${viewport.label} restored the retired illustration badge`);
+    }
     if (rendered.animations) {
       fail(`Pages ${viewport.label} exposes ${rendered.animations} live animation(s)`);
     }
@@ -314,12 +318,11 @@ async function verifyConnectViewport(page, viewport, expectedOrigin) {
   await page.waitForTimeout(250);
   const connectRendered = await page.evaluate(({ width }) => {
     // The desktop art intentionally bleeds beneath the poster's overflow-hidden
-    // crop; validate the containing poster and visible caption, not that raw crop.
+    // crop; validate the containing poster rather than the raw crop.
     const selectors = [
       ".inverts-poster", ".inv-poster-copy", ".inv-poster-topline",
       ".inv-poster-brand", ".inv-poster-suite-link", ".inverts-poster h1",
       ".inv-poster-promise", ".inv-poster-cta", ".inv-poster-note",
-      ".inv-poster-art figcaption",
     ];
     const clipped = selectors.flatMap((selector) => {
       const element = document.querySelector(selector);
@@ -361,6 +364,7 @@ async function verifyConnectViewport(page, viewport, expectedOrigin) {
         && image.naturalHeight > 0),
       artOrigin: imageUrl?.origin || "",
       artPath: imageUrl?.pathname || "",
+      badgeAbsent: !document.querySelector(".inv-poster-art figcaption"),
       posterAnimations: poster?.getAnimations({ subtree: true })
         .filter((animation) => animation.playState !== "finished").length || 0,
     };
@@ -399,6 +403,9 @@ async function verifyConnectViewport(page, viewport, expectedOrigin) {
       `Connect ${viewport.label} did not render reviewed local art `
       + `(${connectRendered.artOrigin}${connectRendered.artPath})`,
     );
+  }
+  if (!connectRendered.badgeAbsent) {
+    fail(`Connect ${viewport.label} restored the retired illustration badge`);
   }
   if (connectRendered.posterAnimations) {
     fail(

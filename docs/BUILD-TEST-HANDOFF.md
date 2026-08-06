@@ -1,5 +1,46 @@
 # My Little Inverts — build/test handoff
 
+## 2026-08-05 — Cover badge removal source handoff (America/Phoenix)
+
+### Scope and authority
+
+- Clean source baseline: `origin/main` at
+  `53991b6f460a97a4abfcee9f62e94cd77c167f89`; local source branch:
+  `codex/inverts-remove-visible-art-badge`.
+- Removed only the visible editorial-illustration caption from the Pages Living
+  Poster and its in-app counterpart. The reviewed descriptive alt text,
+  byte-identified local artwork, `docs/IMAGE-PROVENANCE.md`, opportunity/zero
+  disclosure, density/EPT limits, and all scientific/data bytes remain unchanged.
+- Removed the now-dead caption CSS. Static and post-deploy browser contracts now
+  require the Pages/app badges to remain absent while retaining local-art,
+  responsive, accessibility, provenance, exact-identity, and scientific-limit
+  checks.
+
+### Local evidence and release boundary
+
+- Passed: `npm ci --ignore-scripts --no-audit --no-fund`,
+  `npm run check:cover`, `node --check scripts/post_deploy_browser.mjs`,
+  `Rscript --vanilla scripts/test_release_identity.R`, and `git diff --check`.
+- Diagnostic R 4.5.3 checks also passed 143 source-contract fixtures, 109 science
+  fixtures, 43 producer/verifier fixtures, and 58 adversarial release-verifier
+  fixtures. The system library lacked `data.table`; the complete diagnostic suite
+  was therefore rerun successfully with the existing `msc-r` environment. These
+  diagnostics do not replace the pinned release validator.
+- The authoritative `manifest.json`, `release/production-identity.json`, and
+  `docs/release.json` were deliberately not rewritten on the macOS R 4.5.3 host.
+  Repository policy requires their prestamp/write/final/verify sequence in the
+  pinned R 4.5.2 / Ubuntu 22.04 validator, so this source handoff is not yet a
+  deploy candidate and production remains unchanged.
+- Next action: push the exact source commit, manually run **Propose immutable NEON
+  invert refresh** on that ref with `skip_download=true`, review the generated
+  `automation/invert-data-refresh` candidate, and merge only its green exact
+  head. The merge makes Connect republish watched `main`; the
+  `Verify My Little Inverts production` workflow must then prove Pages marker
+  `inverts-living-poster-v2`, Connect marker
+  `my-little-inverts-release-2026-v1`, the exact production identity, byte-exact
+  Pages assets, and the live Playwright/Shiny round trip. No push, merge,
+  deployment, or live-production claim was made in this local pass.
+
 ## 2026-08-04 — Pass-9 governance/tooling release complete
 
 ### Scope and authority
