@@ -94,7 +94,8 @@ requireContract(/<nav class="cover-nav" aria-label="NEON Explorer Suite">/.test(
 requireContract(count(main, /<a\b/g) === 2, "poster face must contain only the Driver route and live-app CTA");
 requireContract(count(main, /class="suite-jump"/g) === 1, "poster face must contain exactly one Driver route");
 requireContract(count(main, /class="button"/g) === 1, "poster face must contain exactly one contextual CTA");
-requireContract(count(main, /<figure\b/g) === 1 && count(main, /<figcaption\b/g) === 1, "poster face needs one artwork and one caption");
+requireContract(count(main, /<figure\b/g) === 1, "poster face needs one artwork");
+requireContract(count(main, /<figcaption\b/g) === 0, "Pages illustration badge must stay absent");
 requireContract(count(main, /<p\b/g) === 2, "poster face must contain only the eyebrow and one-line promise");
 requireContract(/NEON My Little Inverts · unofficial/.test(main), "approved eyebrow is missing");
 requireContract(/aria-label="What lives below the surface\?"/.test(main), "approved accessible hook is missing");
@@ -106,7 +107,8 @@ requireContract(/inverts-living-poster-v2-840\.webp 840w, assets\/inverts-living
 requireContract(/inverts-living-poster-v2\.png" width="1672" height="941"/.test(main), "poster fallback lacks reviewed dimensions");
 requireContract(/fetchpriority="high" decoding="async"/.test(main), "poster artwork priority/decoding attributes drifted");
 requireContract(/alt="Editorial screenprint of a mayfly nymph,[^"]+field tags\."/.test(main), "poster artwork needs the reviewed descriptive alt");
-requireContract(/Editorial illustration—not a field photograph or data record\./.test(main), "visible art/data boundary is missing");
+requireContract(!/Editorial illustration—not a field photograph or data record\./.test(main), "Pages illustration badge returned");
+requireContract(!/art-note/.test(cover), "retired Pages illustration-badge hook remains");
 
 for (const retired of [
   /constel(?:lation|-sec)?/i,
@@ -197,12 +199,14 @@ requireContract(/alt = paste\(/.test(appPoster)
   && /Editorial screenprint of a mayfly nymph/.test(appPoster)
   && /leaves beside field tags\./.test(appPoster),
   "app poster artwork needs the reviewed descriptive alt");
-requireContract(/Editorial illustration—not a field photograph or data record\./.test(appPoster), "app art/data boundary is missing");
+requireContract(!/Editorial illustration—not a field photograph or data record\./.test(appPoster), "app illustration badge returned");
+requireContract(!/tags\$figcaption/.test(appPoster), "retired app illustration-badge constructor remains");
 requireContract(/@media \(max-width: 900px\)/.test(posterCss), "app poster tablet seam is missing");
 requireContract(/@media \(max-width: 420px\) and \(max-height: 860px\)/.test(posterCss), "app poster short-phone seam is missing");
 requireContract(/@media \(prefers-reduced-motion: reduce\)/.test(posterCss), "app poster reduced-motion rule is missing");
 requireContract(/@media \(prefers-contrast: more\)/.test(posterCss), "app poster contrast rule is missing");
 requireContract(/@media \(forced-colors: active\)/.test(posterCss), "app poster forced-colors rule is missing");
+requireContract(!/figcaption/.test(posterCss), "retired app illustration-badge CSS remains");
 
 // Reviewed, local, byte-identical artwork.
 const assets = {
