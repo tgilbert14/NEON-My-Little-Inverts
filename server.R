@@ -937,7 +937,7 @@ server <- function(input, output, session) {
   output$nationalPicker <- leaflet::renderLeaflet({
     if (isTRUE(NO_DATA) || !nrow(site_table)) {
       return(leaflet::leaflet() %>%
-        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+        add_suite_basemap("CartoDB.Positron") %>%
         leaflet::setView(lng = -98, lat = 39, zoom = 3))
     }
     sizes <- 8 + 14 * sqrt(pmax(0, num(site_table$n_opportunities)) /
@@ -960,7 +960,7 @@ server <- function(input, output, session) {
       )
     }, character(1))
     leaflet::leaflet(site_table) %>%
-      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+      add_suite_basemap("CartoDB.Positron") %>%
       leaflet::addCircleMarkers(
         lng = ~lng, lat = ~lat, radius = sizes,
         color = ~type_col(type), fillColor = ~type_col(type),
