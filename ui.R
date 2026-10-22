@@ -12,7 +12,7 @@ inverts_poster <- function() {
         tags$nav(class = "inv-poster-nav", `aria-label` = "NEON Explorer Suite",
           tags$a(class = "inv-poster-suite-link",
             href = "https://tgilbert14.github.io/NEON-Driver-Cascade/",
-            "Whole suite: ", tags$strong("Driver Cascade"),
+            "Whole suite: ", tags$strong("NEON Cross-Product Response Atlas"),
             tags$span(`aria-hidden` = "true", "↗")))),
       div(class = "inv-poster-app", "NEON My Little Inverts · unofficial"),
       h1(id = "inverts-poster-title", `aria-label` = "What lives below the surface?",
@@ -23,7 +23,7 @@ inverts_poster <- function() {
         onclick = "window.setTimeout(function(){var target=document.getElementById('site-picker-start');if(target){target.focus({preventScroll:true});}},0)",
         "Choose an aquatic site", tags$span(`aria-hidden` = "true", " ↓")),
       p(class = "inv-poster-note",
-        "Public NEON DP1.20120.001 · collection records—not verified zeros, population counts, or water-quality scores.")),
+        "Public NEON DP1.20120.001 · collection records, not verified zeros, population counts, or water-quality scores.")),
     tags$figure(class = "inv-poster-art",
       tags$picture(
         tags$source(
@@ -51,9 +51,8 @@ inverts_poster <- function() {
 
 ui <- bslib::page_fillable(
   theme = app_theme,
-  title = NULL,
-  window_title = "NEON My Little Inverts",
-  fillable = FALSE,
+  title = "NEON My Little Inverts",
+  lang = "en",
   tags$head(
     tags$meta(name = "ddl-app-ready", content = APP_RELEASE_MARKER),
     tags$meta(name = "ddl-release-instance", content = RELEASE_INSTANCE_ID),
@@ -100,15 +99,15 @@ ui <- bslib::page_fillable(
       div(id = "loadSite", class = "load-site"),
       div(class = "load-bar"),
       div(class = "load-note",
-          "Reading the opportunity ledger, exact strata, and taxon records.")
+          "Loading samples and taxa.")
     )
   ),
 
   if (isTRUE(NO_DATA)) div(
     class = "synth-banner", bs_icon("exclamation-octagon-fill"),
     tags$span(HTML(paste0(
-      "<b>No reviewed Pass-9 data bundle is available.</b> ",
-      "The app remains closed to legacy bundle shapes."
+      "<b>No site data is available.</b> ",
+      "This app needs the reviewed data bundle, which is missing."
     )))
   ),
 
@@ -424,11 +423,23 @@ ui <- bslib::page_fillable(
         ),
         "desertdatalabs@gmail.com"
       )),
-    p(style = "font-size:12px;opacity:.85",
-      paste(
-        "Data: NEON Macroinvertebrate collection (DP1.20120.001).",
+    p(style = "font-size:12px",
+      HTML(paste(
+        "Data: NEON (National Ecological Observatory Network) Macroinvertebrate",
+        "collection (DP1.20120.001),",
+        "<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\"",
+        "rel=\"noopener\">CC BY 4.0</a>.",
         "Not affiliated with NEON, Battelle, or the NSF.",
         "An educational data-exploration tool."
-      ))
+      ))),
+    p(class = "ddl-provenance", style = "font-size:12px",
+      HTML(paste0(
+        if (!is.na(DATA_THROUGH))
+          paste0("NEON data through ", htmltools::htmlEscape(DATA_THROUGH), " · release ")
+        else "Release ",
+        htmltools::htmlEscape(NEON_RELEASE), " · DOI ",
+        "<a href=\"https://doi.org/", NEON_DOI, "\" target=\"_blank\" rel=\"noopener\">",
+        htmltools::htmlEscape(NEON_DOI), "</a>"
+      )))
   )
 )

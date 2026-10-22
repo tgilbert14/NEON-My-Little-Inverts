@@ -1,7 +1,7 @@
 /* =========================================================================
    app.js — count-up stat counters + loading overlay + persisted site state +
    the multi-frame map "kick" (re-fit a Leaflet map that initialised hidden).
-   Ported from the Mosquito Pulse v2 chrome; behaviour identical.
+   adapted from NEON-Mosquito-Pulse@461a9e2 (Mosquito Pulse v2 chrome, 2026-06-22).
    ========================================================================= */
 
 // When a tab becomes visible, nudge a resize so widgets that rendered while the
@@ -76,6 +76,8 @@ if (window.jQuery) jQuery(document).on("shiny:connected", function () {
 // ---- loading overlay (opaque, indeterminate) -----------------------------
 var smtSafetyTimer = null;
 function smtLoadStart(label) {
+  // Every load route closes the picker popup before the splash hides.
+  invClosePickerPopup();
   var ov = document.getElementById("loadOverlay");
   if (!ov) return;
   var siteText = label || "";
@@ -86,11 +88,13 @@ function smtLoadStart(label) {
   var siteEl = document.getElementById("loadSite");
   if (siteEl) siteEl.textContent = siteText;
   ov.style.display = "flex";
-  if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+  if (navigator.vibrate && navigator.userActivation && navigator.userActivation.isActive) {
+    try { navigator.vibrate(12); } catch (e) {}
+  }
   clearTimeout(smtSafetyTimer);
   smtSafetyTimer = setTimeout(function () {
     var note = document.querySelector(".load-note");
-    if (note) note.textContent = "Still working — a large site can take a moment. You can close this and try again.";
+    if (note) note.textContent = "Still working. A large site can take a moment.";
     setTimeout(smtLoadDone, 5000);
   }, 90000);
 }
@@ -118,6 +122,44 @@ document.addEventListener("click", function (e) {
 });
 document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") smtClosePopovers();
+});
+
+// ---- site picker: one delegated listener, no inline JS --------------------
+// Map popup buttons, the "About this site" dialog's Explore button, the site
+// cards, and the recents chips carry data-site / data-label. Explore routes
+// close the popup, show the overlay, and hand the code to the server.
+function invClosePickerPopup() {
+  try {
+    var w = window.HTMLWidgets && HTMLWidgets.find("#nationalPicker");
+    var m = w && w.getMap && w.getMap();
+    if (m) m.closePopup();
+  } catch (e) {}
+}
+document.addEventListener("click", function (e) {
+  var el = e.target.closest(
+    ".picker-explore, .picker-about, .site-card[data-site], .recent-chip[data-site]");
+  if (!el) return;
+  e.preventDefault();
+  var site = el.getAttribute("data-site") || "";
+  if (!site || !window.Shiny || !Shiny.setInputValue) return;
+  if (el.classList.contains("picker-about")) {
+    Shiny.setInputValue("siteInfo", site, { priority: "event" });
+    return;
+  }
+  var label = el.getAttribute("data-label") || site;
+  smtLoadStart(label + " · loading…");
+  var input = el.classList.contains("recent-chip") ? "recentPick" : "siteExplore";
+  Shiny.setInputValue(input, site, { priority: "event" });
+});
+
+// ---- browser Back/Forward -------------------------------------------------
+// Picking a site pushes ?site=CODE; Back pops it. Report the code the URL now
+// holds (empty on the picker) and let the server load or return to the picker.
+window.addEventListener("popstate", function () {
+  if (!window.Shiny || !Shiny.setInputValue) return;
+  var code = "";
+  try { code = new URLSearchParams(location.search).get("site") || ""; } catch (e) {}
+  Shiny.setInputValue("navSite", code, { priority: "event" });
 });
 
 // ---- Shiny custom message handlers ---------------------------------------
@@ -178,7 +220,8 @@ function invRegisterHandlers() {
         try {
           if (window.HTMLWidgets && HTMLWidgets.findAll) {
             HTMLWidgets.findAll(".leaflet").forEach(function (w) {
-              if (w.getMap && w.getMap()) w.getMap().invalidateSize();
+              var m = w.getMap && w.getMap();
+              if (m && m.getContainer && m.getContainer().clientWidth > 0) m.invalidateSize();
             });
           }
         } catch (e) {}

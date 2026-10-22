@@ -91,14 +91,12 @@ server <- function(input, output, session) {
     if (is.null(SITE_INDEX) || !nrow(site_table)) return(NULL)
     div(class = "site-cards", lapply(seq_len(nrow(site_table)), function(i) {
       row <- site_table[i, , drop = FALSE]
+      # No inline JS: the delegated picker listener in www/app.js reads data-*.
+      # tags$a escapes attribute values, so a quote in a site name is inert.
       tags$a(
         class = "site-card", href = "#",
-        onclick = sprintf(
-          paste0("smtLoadStart('%s · loading…');",
-                 "Shiny.setInputValue('siteExplore','%s',{priority:'event'});",
-                 "return false;"),
-          gsub("'", "", row$name), row$site
-        ),
+        `data-site` = row$site,
+        `data-label` = sprintf("%s · %s", row$site, row$name),
         div(class = "sc-emoji", "\U0001F990"),
         div(
           class = "sc-body",
@@ -118,7 +116,9 @@ server <- function(input, output, session) {
 
   shinyjs::hide("mainTabsWrap")
 
-  ingest <- function(bundle, label) {
+  # push = TRUE adds a browser-history entry (a user picked a site), so Back
+  # returns to the picker; startup restore and Back/Forward replay use replace.
+  ingest <- function(bundle, label, push = FALSE) {
     checked <- inv_validate_bundle(bundle)
     if (!isTRUE(checked)) {
       session$sendCustomMessage("loadDone", list())
@@ -147,7 +147,7 @@ server <- function(input, output, session) {
 
     updateQueryString(
       paste0("?site=", utils::URLencode(rv$site, reserved = TRUE)),
-      mode = "replace"
+      mode = if (isTRUE(push)) "push" else "replace"
     )
     session$sendCustomMessage("invSaveSite", list(site = rv$site))
     session$sendCustomMessage("countUp", list())
@@ -155,7 +155,7 @@ server <- function(input, output, session) {
     invisible(TRUE)
   }
 
-  load_site <- function(site) {
+  load_site <- function(site, push = FALSE) {
     if (is.null(site) || !length(site) || !nzchar(site)) {
       session$sendCustomMessage("loadDone", list())
       return(invisible())
@@ -176,14 +176,20 @@ server <- function(input, output, session) {
     } else if (nrow(row)) {
       updateSelectInput(session, "site", selected = site)
     }
-    ingest(bundle, sprintf("%s · %s", site, if (nrow(row)) row$name else site))
+    ingest(bundle, sprintf("%s · %s", site, if (nrow(row)) row$name else site),
+           push = push)
   }
 
-  observeEvent(input$loadBtn, load_site(input$site))
-  observeEvent(input$siteExplore, load_site(input$siteExplore))
-  observeEvent(input$recentPick, load_site(input$recentPick))
+  observeEvent(input$loadBtn, load_site(input$site, push = TRUE))
+  observeEvent(input$siteExplore, {
+    removeModal()
+    load_site(input$siteExplore, push = TRUE)
+  })
+  observeEvent(input$recentPick, load_site(input$recentPick, push = TRUE))
 
-  observeEvent(input$changeSite, {
+  # Return to the picker. update_url = FALSE when the browser already moved
+  # (a Back press), so the history stack is left alone.
+  show_picker <- function(update_url = TRUE) {
     carry_tab(input$tabs)
     rv$bundle <- NULL
     rv$meta <- NULL
@@ -194,9 +200,10 @@ server <- function(input, output, session) {
     rv$site <- NULL
     shinyjs::hide("mainTabsWrap")
     shinyjs::show("splash")
-    updateQueryString("?", mode = "replace")
+    if (isTRUE(update_url)) updateQueryString("?", mode = "push")
     session$sendCustomMessage("kickMaps", list())
-  })
+  }
+  observeEvent(input$changeSite, show_picker(update_url = TRUE))
 
   valid_site <- function(code) {
     !is.null(code) && length(code) == 1L && nzchar(code) && code %in% site_table$site
@@ -206,13 +213,86 @@ server <- function(input, output, session) {
       parseQueryString(session$clientData$url_search %||% ""),
       error = function(e) list()
     )
-    target <- if (valid_site(query$site)) query$site else {
+    asked <- query$site %||% ""
+    if (length(asked) == 1L && nzchar(asked) && !valid_site(asked)) {
+      # An unknown ?site= code: say so, clear the URL, and stay on the picker
+      # rather than silently opening the remembered site instead.
+      shown <- substr(gsub("[^A-Za-z0-9]", "", asked), 1L, 8L)
+      showNotification(
+        sprintf("No aquatic site named %s. Pick one on the map.",
+                if (nzchar(shown)) shown else "that"),
+        type = "warning", duration = 10
+      )
+      updateQueryString("?", mode = "replace")
+      return(invisible())
+    }
+    target <- if (valid_site(asked)) asked else {
       saved <- input$invLastSite %||% ""
       if (valid_site(saved)) saved else NULL
     }
     if (is.null(target)) return(invisible())
     session$sendCustomMessage("smtLoadStart", list(label = paste0(target, " · loading…")))
     load_site(target)
+  })
+
+  # Browser Back/Forward: www/app.js reports the ?site= code after popstate.
+  observeEvent(input$navSite, {
+    code <- input$navSite %||% ""
+    if (valid_site(code)) {
+      if (!identical(code, rv$site)) {
+        session$sendCustomMessage("smtLoadStart",
+                                  list(label = paste0(code, " · loading…")))
+        load_site(code, push = FALSE)
+      }
+    } else if (!is.null(rv$site)) {
+      show_picker(update_url = FALSE)
+    }
+  })
+
+  # "About this site" from a map popup: a facts dialog with its own Explore.
+  observeEvent(input$siteInfo, {
+    code <- input$siteInfo %||% ""
+    if (!valid_site(code)) return(invisible())
+    row <- site_table[site_table$site == code, , drop = FALSE][1L, , drop = FALSE]
+    label <- sprintf("%s · %s", code, row$name)
+    dates <- if (!is.na(row$collectDate_min) && !is.na(row$collectDate_max)) {
+      sprintf("%s to %s", row$collectDate_min, row$collectDate_max)
+    } else "Unavailable"
+    lookup <- function(table, key) {
+      out <- unname(table[key])
+      if (!length(out) || is.na(out)) key else out
+    }
+    facts <- list(
+      "State" = lookup(state_names, row$state),
+      "NEON domain" = row$domain,
+      "Water type" = lookup(TYPE_LAB, row$type),
+      "Field opportunities" = inv_value(row$n_opportunities),
+      "Count-eligible samples" = inv_value(row$n_count_samples),
+      "Collection events" = inv_value(row$n_events),
+      "Exact strata" = inv_value(row$n_strata),
+      "Collection dates" = dates
+    )
+    bio <- site_bio(code)
+    showModal(modalDialog(
+      title = label,
+      easyClose = TRUE,
+      tags$table(
+        class = "table table-sm site-facts",
+        tags$tbody(lapply(names(facts), function(k) {
+          v <- facts[[k]]
+          tags$tr(tags$th(scope = "row", k),
+                  tags$td(if (is.null(v) || !length(v) || is.na(v)) "Unavailable" else v))
+        }))
+      ),
+      if (!is.null(bio)) p(class = "site-facts-bio", bio),
+      footer = tagList(
+        tags$button(
+          type = "button", class = "btn btn-primary picker-explore",
+          `data-site` = code, `data-label` = label, "Explore this site"
+        ),
+        modalButton("Close")
+      )
+    ))
   })
 
   observeEvent(input$invRecents, ignoreNULL = FALSE, {
@@ -231,15 +311,10 @@ server <- function(input, output, session) {
                 " Recently viewed:"),
       lapply(codes, function(code) {
         row <- site_table[site_table$site == code, , drop = FALSE]
-        name <- if (nrow(row)) gsub("'", "", row$name) else code
+        name <- if (nrow(row)) row$name else code
         tags$a(
           href = "#", class = "recent-chip", title = name,
-          onclick = sprintf(
-            paste0("smtLoadStart('%s · loading…');",
-                   "Shiny.setInputValue('recentPick','%s',{priority:'event'});",
-                   "return false;"),
-            name, code
-          ),
+          `data-site` = code, `data-label` = sprintf("%s · %s", code, name),
           code
         )
       })
@@ -261,7 +336,7 @@ server <- function(input, output, session) {
                 " Unknown-order counts remain in the composition denominator; no condition class is inferred."),
         tags$li(tags$b("Keep missing distinct from zero."),
                 paste(
-                  " Only a usable laboratory total reported as zero receives the reported-zero support flag.",
+                  " If a usable laboratory total is reported as zero, it receives the reported-zero support flag.",
                   "That flag can overlap an area- or density-unavailable primary status."
                 ))
       ),
@@ -942,21 +1017,29 @@ server <- function(input, output, session) {
     }
     sizes <- 8 + 14 * sqrt(pmax(0, num(site_table$n_opportunities)) /
                            max(1, num(site_table$n_opportunities), na.rm = TRUE))
+    # Popup HTML is a raw string, so every interpolated value is escaped here.
+    # The buttons carry data-* only; the delegated listener in www/app.js acts.
+    esc <- function(x) htmltools::htmlEscape(as.character(x %||% ""), attribute = TRUE)
     popup <- vapply(seq_len(nrow(site_table)), function(i) {
       row <- site_table[i, , drop = FALSE]
+      type_lab <- unname(TYPE_LAB[row$type])
+      if (!length(type_lab) || is.na(type_lab)) type_lab <- row$type
       sprintf(
         paste0(
           "<div class='picker-popup'><b>%s · %s</b><br>",
           "%s · NEON %s · %s<br>",
           "<b>%s</b> field opportunities · <b>%s</b> count-eligible<br>",
-          "<b>%s</b> events · <b>%s</b> exact strata<br>",
-          "<button class='btn btn-sm btn-primary' onclick=\"smtLoadStart('%s · loading…');",
-          "Shiny.setInputValue('siteExplore','%s',{priority:'event'});\">Explore</button></div>"
+          "<b>%s</b> events · <b>%s</b> exact strata",
+          "<div class='picker-popup-actions'>",
+          "<button type='button' class='btn btn-primary picker-explore' ",
+          "data-site='%s' data-label='%s'>Explore this site</button>",
+          "<button type='button' class='btn btn-outline-secondary picker-about' ",
+          "data-site='%s'>About this site</button></div></div>"
         ),
-        row$site, row$name, TYPE_LAB[row$type] %||% row$type, row$domain,
-        row$state, inv_value(row$n_opportunities), inv_value(row$n_count_samples),
+        esc(row$site), esc(row$name), esc(type_lab), esc(row$domain),
+        esc(row$state), inv_value(row$n_opportunities), inv_value(row$n_count_samples),
         inv_value(row$n_events), inv_value(row$n_strata),
-        gsub("'", "", row$name), row$site
+        esc(row$site), esc(sprintf("%s · %s", row$site, row$name)), esc(row$site)
       )
     }, character(1))
     leaflet::leaflet(site_table) %>%
@@ -966,6 +1049,12 @@ server <- function(input, output, session) {
         color = ~type_col(type), fillColor = ~type_col(type),
         fillOpacity = 0.75, weight = 2, opacity = 0.95,
         popup = popup, label = ~paste(site, name),
+        # keepInView must stay FALSE: TRUE fights the cluster layer and loops
+        # the pan forever (a blank map in sibling apps).
+        popupOptions = leaflet::popupOptions(
+          maxWidth = 300, minWidth = 230, autoPan = TRUE, keepInView = FALSE,
+          closeOnClick = FALSE
+        ),
         clusterOptions = leaflet::markerClusterOptions(
           showCoverageOnHover = FALSE, maxClusterRadius = 38
         )
@@ -1002,13 +1091,25 @@ server <- function(input, output, session) {
   output$aboutPanel <- renderUI({
     source <- if (!is.null(rv$bundle)) rv$bundle$provenance$source else
       SEARCH_INDEX$source %||% list()
+    esc <- function(x) htmltools::htmlEscape(as.character(x))
+    field <- function(x) {
+      if (is.null(x) || !length(x) || is.na(x[[1L]]) || !nzchar(x[[1L]])) NULL
+      else as.character(x[[1L]])
+    }
+    release <- field(source$release) %||% NEON_RELEASE
+    doi <- field(source$doi) %||% NEON_DOI
+    doi_url <- field(source$doi_url) %||% paste0("https://doi.org/", doi)
+    fetched <- field(source$fetched_at_utc)
     div(
       class = "about-wrap field-first-about",
       h3("My Little Inverts"),
       p(paste(
-        "An unofficial field-first explorer for NEON Macroinvertebrate collection",
-        "DP1.20120.001. It keeps field opportunities, processing states, exact",
-        "collection strata, and mixed identification ranks visible."
+        "An unofficial explorer for the aquatic invertebrates in NEON's",
+        "Macroinvertebrate collection (DP1.20120.001). NEON, the National",
+        "Ecological Observatory Network, samples the same streams, rivers, and",
+        "lakes year after year. The app keeps every planned sample, its",
+        "processing status, the exact sampling method, and each identification",
+        "rank visible."
       )),
       div(
         class = "honesty-box",
@@ -1023,24 +1124,58 @@ server <- function(input, output, session) {
         )
       ),
       h4("Source and release"),
-      p(HTML(sprintf(
-        paste0(
-          "Public NEON <a href='https://data.neonscience.org/data-products/DP1.20120.001' ",
-          "target='_blank' rel='noopener'>DP1.20120.001</a> · release <b>%s</b> · ",
-          "provisional data <b>%s</b> · publication through <b>%s</b>."
-        ),
-        htmltools::htmlEscape(source$release %||% "Unavailable"),
+      p(HTML(paste0(
+        "Public NEON <a href='https://data.neonscience.org/data-products/DP1.20120.001' ",
+        "target='_blank' rel='noopener'>DP1.20120.001</a> · release <b>", esc(release),
+        "</b> · DOI <a href='", esc(doi_url), "' target='_blank' rel='noopener'>",
+        esc(doi), "</a> · provisional data <b>",
         if (isTRUE(source$include_provisional)) "included" else "not included",
-        htmltools::htmlEscape(source$publication_date_max %||% "Unavailable")
+        "</b> · publication through <b>",
+        esc(field(source$publication_date_max) %||% "Unavailable"), "</b>",
+        if (!is.na(DATA_THROUGH))
+          paste0(" · records through <b>", esc(DATA_THROUGH), "</b>"),
+        "."
+      ))),
+      p(class = "about-cite", HTML(paste0(
+        "Cite the data as: NEON (National Ecological Observatory Network). ",
+        "Macroinvertebrate collection (DP1.20120.001), ", esc(release), ". ",
+        "<a href='https://doi.org/", esc(doi), "' target='_blank' rel='noopener'>",
+        "https://doi.org/", esc(doi), "</a>. ",
+        "Dataset accessed from ",
+        "<a href='https://data.neonscience.org' target='_blank' rel='noopener'>",
+        "https://data.neonscience.org</a>",
+        if (!is.null(fetched)) paste0(" on ", esc(substr(fetched, 1L, 10L))),
+        "."
       ))),
       h4("Explore the NEON series"),
+      # Each card: the main link opens the live app, a small secondary link
+      # opens its cover. Two sibling links, never one nested inside the other.
       div(class = "sibling-grid", lapply(SUITE_REGISTRY, function(item) {
-        tags$a(
-          class = paste("sib-card", if (identical(item$dpid, NEON_DPID)) "is-self" else ""),
-          href = item$url, target = "_blank", rel = "noopener",
-          div(class = "sib-emoji", item$emoji),
-          div(div(class = "sib-name", item$name),
-              div(class = "sib-tag", item$tag))
+        self <- identical(item$dpid, NEON_DPID)
+        div(
+          class = paste("sib-card", if (self) "is-self" else ""),
+          if (self) {
+            div(class = "sib-main",
+                div(class = "sib-emoji", item$emoji),
+                div(div(class = "sib-name", item$name),
+                    div(class = "sib-tag", item$tag)))
+          } else {
+            tags$a(
+              class = "sib-main", href = item$app %||% item$url,
+              target = "_blank", rel = "noopener",
+              div(class = "sib-emoji", item$emoji),
+              div(div(class = "sib-name", item$name),
+                  div(class = "sib-tag", item$tag))
+            )
+          },
+          if (self) {
+            tags$span(class = "sib-note", "You are here")
+          } else {
+            tags$a(class = "sib-about", href = item$url, target = "_blank",
+                   rel = "noopener",
+                   `aria-label` = paste("About page:", item$name),
+                   "About page")
+          }
         )
       }))
     )

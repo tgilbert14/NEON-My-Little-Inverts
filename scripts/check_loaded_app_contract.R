@@ -147,7 +147,7 @@ for (copy in c(
   paste("Explore the aquatic invertebrates NEON recorded in stream, river,",
         "and lake-bottom samples."),
   "Choose an aquatic site",
-  paste0("Public NEON DP1.20120.001 · collection records—not verified zeros, ",
+  paste0("Public NEON DP1.20120.001 · collection records, not verified zeros, ",
          "population counts, or water-quality scores.")
 )) {
   expect(grepl(copy, ui_text, fixed = TRUE),

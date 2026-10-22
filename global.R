@@ -46,7 +46,7 @@ add_suite_basemap <- function(map, basemap = "light_all", noWrap = FALSE) {
       urlTemplate = sprintf(
         "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_%s_Gray_Base/MapServer/tile/{z}/{y}/{x}",
         if (identical(variant, "dark_all")) "Dark" else "Light"),
-      attribution = 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors',
+      attribution = 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors',
       options = leaflet::tileOptions(maxNativeZoom = 16, maxZoom = 19, noWrap = noWrap))
   }
 }
@@ -261,6 +261,13 @@ BUNDLED <- if (!is.null(SITE_INDEX)) {
   } else roster
 } else character(0)
 
+# The latest collection date in the reviewed bundle, shown in the footer and the
+# About panel. NA when the index is unavailable or carries no usable dates.
+DATA_THROUGH <- if (!is.null(SITE_INDEX) && nrow(SITE_INDEX)) local({
+  through <- suppressWarnings(as.Date(SITE_INDEX$collectDate_max))
+  if (any(!is.na(through))) as.character(max(through, na.rm = TRUE)) else NA_character_
+}) else NA_character_
+
 # ---------------------------------------------------------------------------
 # The search index carries exact-stratum taxon support rows and the same
 # effort/records-only site table. It is disabled if either contract is stale.
@@ -361,7 +368,9 @@ asset_url <- function(path) { f <- file.path("www", path)
   v <- if (file.exists(f)) as.integer(as.numeric(file.mtime(f))) else 0L; sprintf("%s?v=%s", path, v) }
 spin <- function(x, img = NULL) shinycssloaders::withSpinner(x, color = DDL$teal, type = 6)
 info_pop <- function(title, ..., placement = "auto")
-  bslib::popover(tags$span(class = "info-dot", bsicons::bs_icon("info-circle")), ..., title = title, placement = placement)
+  bslib::popover(tags$span(class = "info-dot", `aria-label` = paste("About:", title),
+                           bsicons::bs_icon("info-circle", a11y = "deco")),
+                 ..., title = title, placement = placement)
 insight_banner <- function(icon, ..., tone = "navy")
   div(class = paste("chart-insight", paste0("ci-", tone)), bsicons::bs_icon(icon), div(class = "ci-text", ...))
 glow_badge <- function(label, color = "#0e8f9c", glow = color)
@@ -371,22 +380,23 @@ card_head <- function(icon, title, ...)
 fmt_int <- function(x) format(round(as.numeric(x)), big.mark = ",", trim = TRUE)
 
 # ---------------------------------------------------------------------------
-# The suite registry (ONE source of truth, mirrored in docs/index.html). Every
-# sibling links to every other; the About "Explore the NEON series" block renders
-# this. is-self is flagged by matching dpid to NEON_DPID. Keep in sync when an app
-# ships. URLs are the github.io showcase covers (the public front doors).
+# The suite registry (ONE source of truth). It is rendered in the About tab's
+# "Explore the NEON series" block; the cover page (Living Poster V1) carries only
+# the Atlas route. is-self is flagged by matching dpid to NEON_DPID. Keep in sync
+# when an app ships. `app` is the live Connect Cloud app (each card's main link);
+# `url` is the github.io cover (the card's secondary "About page" link).
 # ---------------------------------------------------------------------------
 SUITE_REGISTRY <- list(
-  list(name = "Small Mammal Tracker",  emoji = "\U0001F42D", tag = "tagged rodents, mark-recapture", dpid = "DP1.10072.001", url = "https://tgilbert14.github.io/NEON-Small-Mammal-Tracker-App/"),
-  list(name = "Plant Diversity",       emoji = "\U0001F33F", tag = "plots, richness, expected-vs-observed", dpid = "DP1.10058.001", url = "https://tgilbert14.github.io/NEON-Plant-Diversity/"),
-  list(name = "Breeding Birds",        emoji = "\U0001F426", tag = "point counts and community records", dpid = "DP1.10003.001", url = "https://tgilbert14.github.io/NEON-Breeding-Birds/"),
-  list(name = "Plant Phenology",       emoji = "\U0001F33C", tag = "leaf-out and flowering timing", dpid = "DP1.10055.001", url = "https://tgilbert14.github.io/NEON-Plant-Phenology-Explorer/"),
-  list(name = "Vegetation Structure",  emoji = "\U0001F332", tag = "tree size, basal area, standing stock", dpid = "DP1.10098.001", url = "https://tgilbert14.github.io/NEON-Vegetation-Structure-Explorer/"),
-  list(name = "Ground Beetle Tracker", emoji = "\U0001FAB2", tag = "pitfall carabids by site", dpid = "DP1.10022.001", url = "https://tgilbert14.github.io/NEON-Ground-Beetle-Tracker/"),
-  list(name = "Water Chemistry",       emoji = "\U0001F4A7", tag = "stream chemistry and conductivity", dpid = "DP1.20093.001", url = "https://tgilbert14.github.io/NEON-WaterChemistry-Analyte-Viewer-App/"),
-  list(name = "Mosquito Pulse",        emoji = "\U0001F99F", tag = "CO2-trap mosquitoes, the monsoon pulse", dpid = "DP1.10043.001", url = "https://tgilbert14.github.io/NEON-Mosquito-Pulse/"),
-  list(name = "My Little Inverts",     emoji = "\U0001F990", tag = "stream and lake bottom-dwellers, EPT", dpid = "DP1.20120.001", url = "https://tgilbert14.github.io/NEON-My-Little-Inverts/"),
-  list(name = "Driver Cascade",        emoji = "\U0001F30E", tag = "cross-product synthesis, the master view", dpid = "cascade", url = "https://tgilbert14.github.io/NEON-Driver-Cascade/"))
+  list(name = "Small Mammal Tracker",  emoji = "\U0001F42D", tag = "tagged rodents, mark-recapture", dpid = "DP1.10072.001", url = "https://tgilbert14.github.io/NEON-Small-Mammal-Tracker-App/", app = "https://019ec337-7100-317e-5052-c3bf32ffcb79.share.connect.posit.cloud/"),
+  list(name = "Plant Diversity",       emoji = "\U0001F33F", tag = "plots, richness, expected-vs-observed", dpid = "DP1.10058.001", url = "https://tgilbert14.github.io/NEON-Plant-Diversity/", app = "https://019ee109-30ae-006e-cb3b-143afeac57e3.share.connect.posit.cloud/"),
+  list(name = "Breeding Birds",        emoji = "\U0001F426", tag = "point counts and community records", dpid = "DP1.10003.001", url = "https://tgilbert14.github.io/NEON-Breeding-Birds/", app = "https://019ee116-75d9-5940-8ccd-9b8c7afabce4.share.connect.posit.cloud/"),
+  list(name = "Plant Phenology",       emoji = "\U0001F33C", tag = "leaf-out and flowering timing", dpid = "DP1.10055.001", url = "https://tgilbert14.github.io/NEON-Plant-Phenology-Explorer/", app = "https://019ee118-bf17-1622-bd5d-e59cab3b36a7.share.connect.posit.cloud/"),
+  list(name = "Vegetation Structure",  emoji = "\U0001F332", tag = "tree size, basal area, standing stock", dpid = "DP1.10098.001", url = "https://tgilbert14.github.io/NEON-Vegetation-Structure-Explorer/", app = "https://019ee110-8fd3-abae-aee3-02ea8e4274c8.share.connect.posit.cloud/"),
+  list(name = "Ground Beetle Tracker", emoji = "\U0001FAB2", tag = "pitfall carabids by site", dpid = "DP1.10022.001", url = "https://tgilbert14.github.io/NEON-Ground-Beetle-Tracker/", app = "https://019ec8ff-2a4b-e0e9-871d-07a047a571d3.share.connect.posit.cloud/"),
+  list(name = "Water Chemistry",       emoji = "\U0001F4A7", tag = "stream chemistry and conductivity", dpid = "DP1.20093.001", url = "https://tgilbert14.github.io/NEON-WaterChemistry-Analyte-Viewer-App/", app = "https://019ebf59-b2ff-a20a-cb35-6d227ca6261a.share.connect.posit.cloud/"),
+  list(name = "Mosquito Pulse",        emoji = "\U0001F99F", tag = "CO2-trap mosquitoes, the monsoon pulse", dpid = "DP1.10043.001", url = "https://tgilbert14.github.io/NEON-Mosquito-Pulse/", app = "https://019ef0b1-0099-c999-1edc-4d47826044cc.share.connect.posit.cloud/"),
+  list(name = "My Little Inverts",     emoji = "\U0001F990", tag = "stream and lake bottom-dwellers, EPT", dpid = "DP1.20120.001", url = "https://tgilbert14.github.io/NEON-My-Little-Inverts/", app = "https://019ef4fb-c6c4-7ddf-2667-7e1021b2ef10.share.connect.posit.cloud/"),
+  list(name = "NEON Cross-Product Response Atlas", emoji = "\U0001F30E", tag = "cross-product synthesis", dpid = "cascade", url = "https://tgilbert14.github.io/NEON-Driver-Cascade/", app = "https://019ee1cf-a484-44eb-a181-cd495df24b3b.share.connect.posit.cloud/"))
 
 # ---------------------------------------------------------------------------
 # The app mascot — "Riffle," a friendly round mayfly nymph (the EPT poster-bug)
