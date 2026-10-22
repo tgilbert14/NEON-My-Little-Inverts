@@ -23,7 +23,7 @@ inverts_poster <- function() {
         onclick = "window.setTimeout(function(){var target=document.getElementById('site-picker-start');if(target){target.focus({preventScroll:true});}},0)",
         "Choose an aquatic site", tags$span(`aria-hidden` = "true", " ↓")),
       p(class = "inv-poster-note",
-        "Public NEON DP1.20120.001 · collection records—not verified zeros, population counts, or water-quality scores.")),
+        "Public NEON DP1.20120.001 · collection records, not verified zeros, population counts, or water-quality scores.")),
     tags$figure(class = "inv-poster-art",
       tags$picture(
         tags$source(
