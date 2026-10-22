@@ -30,6 +30,13 @@ inv_redact_transport_message <- function(message, token) {
   message
 }
 
+# GitHub workflow-command escaping so a message stays one annotation line.
+inv_github_annotation_escape <- function(message) {
+  message <- gsub("%", "%25", message, fixed = TRUE)
+  message <- gsub("\r", "%0D", message, fixed = TRUE)
+  gsub("\n", "%0A", message, fixed = TRUE)
+}
+
 inv_neon_auth_preflight <- function(token, request = NULL,
                                     sleep = Sys.sleep) {
   inv_assert(length(token) == 1L && !is.na(token) && nzchar(token),
@@ -372,7 +379,19 @@ fetch_inv_all <- function() {
   token <- trimws(Sys.getenv("NEON_TOKEN", ""))
   inv_assert(nzchar(token),
              "NEON_TOKEN is required; anonymous or workstation-path fallback is forbidden")
-  inv_neon_auth_preflight(token)
+  tryCatch(
+    inv_neon_auth_preflight(token),
+    error = function(error) {
+      # The preflight message is already redacted; redact once more defensively
+      # and print only the message, never the token, headers, or bodies.
+      message_text <- inv_redact_transport_message(conditionMessage(error), token)
+      cat(sprintf(
+        "::error title=NEON fetch preflight failed::%s\n",
+        inv_github_annotation_escape(message_text)
+      ))
+      stop(error)
+    }
+  )
   restore_transport <- inv_install_neonutilities_getapi_compat()
   on.exit(restore_transport(), add = TRUE)
 

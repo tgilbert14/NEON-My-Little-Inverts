@@ -49,6 +49,11 @@ const connectViewports = [
   { label: "390px phone", width: 390, height: 844 },
   { label: "320px phone", width: 320, height: 568 },
 ];
+const expectedTitle = "NEON My Little Inverts";
+const phoneViewport = { label: "375px phone", width: 375, height: 812 };
+const mainTabs = ["overview", "strata", "taxa", "network", "qa", "about"];
+const cartoTileHost = "basemaps.cartocdn.com";
+const requireCartoTiles = process.env.INV_REQUIRE_CARTO_TILES === "1";
 const expectedSycaStats = [
   { label: "field opportunities", value: "193" },
   { label: "count-eligible", value: "121" },
@@ -70,6 +75,141 @@ function sameOrigin(value, expectedOrigin) {
     return new URL(value).origin === expectedOrigin;
   } catch {
     return false;
+  }
+}
+
+// Records only whether a CARTO basemap tile was requested. The tile URL carries
+// the suite key, so the URL itself is never stored or printed.
+function watchCartoTiles(page, state) {
+  page.on("request", (request) => {
+    try {
+      const host = new URL(request.url()).hostname;
+      if (host === cartoTileHost || host.endsWith(`.${cartoTileHost}`)) {
+        state.cartoRequests += 1;
+      }
+    } catch {
+      // Non-URL requests (data:, blob:) are not tiles.
+    }
+  });
+}
+
+async function waitForSycaHero(page) {
+  await page.waitForFunction((expectedStats) => {
+    const stats = [...document.querySelectorAll("#heroStats .hero-stat")];
+    const exactStats = expectedStats.every(({ label, value }) => {
+      const stat = stats.find((candidate) => (
+        candidate.querySelector(".hs-l")?.textContent.trim() === label
+      ));
+      const counter = stat?.querySelector(".hs-v");
+      return counter?.dataset.target === value
+        && counter.textContent.trim() === value;
+    });
+    const overlay = document.querySelector("#loadOverlay");
+    return new URL(window.location.href).searchParams.get("site") === "SYCA"
+      && stats.length === expectedStats.length
+      && exactStats
+      && (!overlay || getComputedStyle(overlay).display === "none");
+  }, expectedSycaStats);
+  await page.waitForFunction(
+    () => !document.documentElement.classList.contains("shiny-busy"),
+  );
+}
+
+async function requireDocumentShell(page, label) {
+  const shell = await page.evaluate(() => ({
+    title: document.title,
+    lang: document.documentElement.lang,
+  }));
+  if (shell.title !== expectedTitle) {
+    fail(`${label} document.title is "${shell.title}"; expected "${expectedTitle}"`);
+  }
+  if (shell.lang !== "en") {
+    fail(`${label} <html lang> is "${shell.lang}"; expected "en"`);
+  }
+}
+
+// Every rendered status bar must carry a real fill; rgb(0, 0, 0) means the
+// trace lost its colour mapping and plotly fell back to black.
+async function requireStatusBarFills(page) {
+  await page.waitForFunction(() => (
+    document.querySelectorAll("#overviewStatusPlot .trace.bars .point path").length > 0
+  ));
+  const fills = await page.evaluate(() => (
+    [...document.querySelectorAll("#overviewStatusPlot .trace.bars .point path")]
+      .map((path) => getComputedStyle(path).fill || path.style.fill || "")
+  ));
+  const black = fills.filter((fill) => fill.replace(/\s+/g, "") === "rgb(0,0,0)");
+  if (!fills.length || black.length) {
+    fail(
+      `#overviewStatusPlot has ${black.length} of ${fills.length} bars `
+      + "filled rgb(0, 0, 0)",
+    );
+  }
+}
+
+// Inactive card-header tab text must reach WCAG AA 4.5:1 against the colour
+// actually painted behind it (first non-transparent ancestor background,
+// composited over any translucent layers and finally white).
+async function requireInactiveTabContrast(page, label) {
+  const results = await page.evaluate(() => {
+    const parse = (value) => {
+      const match = String(value || "").match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      const parts = match[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+      return {
+        r: parts[0], g: parts[1], b: parts[2],
+        a: parts.length > 3 && Number.isFinite(parts[3]) ? parts[3] : 1,
+      };
+    };
+    const over = (top, bottom) => ({
+      r: top.r * top.a + bottom.r * (1 - top.a),
+      g: top.g * top.a + bottom.g * (1 - top.a),
+      b: top.b * top.a + bottom.b * (1 - top.a),
+      a: 1,
+    });
+    const luminance = ({ r, g, b }) => {
+      const channel = (value) => {
+        const v = value / 255;
+        return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const effectiveBackground = (element) => {
+      const layers = [];
+      for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+        const color = parse(getComputedStyle(node).backgroundColor);
+        if (color && color.a > 0) {
+          layers.push(color);
+          if (color.a >= 1) break;
+        }
+      }
+      return layers.reverse().reduce(
+        (bottom, top) => over(top, bottom),
+        { r: 255, g: 255, b: 255, a: 1 },
+      );
+    };
+    return [...document.querySelectorAll(".card-header .nav-tabs .nav-link:not(.active)")]
+      .filter((link) => link.getClientRects().length > 0
+        && getComputedStyle(link).visibility !== "hidden")
+      .map((link) => {
+        const background = effectiveBackground(link);
+        const text = parse(getComputedStyle(link).color) || { r: 0, g: 0, b: 0, a: 1 };
+        const foreground = text.a < 1 ? over(text, background) : text;
+        const [light, dark] = [luminance(foreground), luminance(background)]
+          .sort((a, b) => b - a);
+        return {
+          text: link.textContent.replace(/\s+/g, " ").trim(),
+          ratio: (light + 0.05) / (dark + 0.05),
+        };
+      });
+  });
+  if (!results.length) fail(`${label} has no visible inactive card-header tab to contrast-check`);
+  const low = results.filter(({ ratio }) => !(ratio >= 4.5));
+  if (low.length) {
+    fail(
+      `${label} inactive tab text is below 4.5:1 contrast: `
+      + low.map(({ text, ratio }) => `"${text}" ${ratio.toFixed(2)}:1`).join(" | "),
+    );
   }
 }
 
@@ -301,7 +441,7 @@ async function verifyPagesViewport(browser, viewport, revision) {
     await page.waitForFunction(() => document.activeElement?.id === "main");
     await page.keyboard.press("Tab");
     await requireKeyboardFocus(
-      page, ".suite-jump", `Pages ${viewport.label} Driver route`,
+      page, ".suite-jump", `Pages ${viewport.label} Atlas route`,
     );
     await page.keyboard.press("Tab");
     await requireKeyboardFocus(page, ".button", `Pages ${viewport.label} CTA`);
@@ -415,7 +555,7 @@ async function verifyConnectViewport(page, viewport, expectedOrigin) {
   }
 }
 
-async function verifyConnect(browser, releaseId, revision) {
+async function verifyConnect(browser, releaseId, revision, tileState) {
   const expectedOrigin = new URL(app).origin;
   const page = await browser.newPage({
     reducedMotion: "reduce",
@@ -423,6 +563,7 @@ async function verifyConnect(browser, releaseId, revision) {
   });
   page.setDefaultTimeout(180_000);
   const diagnostics = watchPage(page, expectedOrigin);
+  watchCartoTiles(page, tileState);
   try {
     const url = new URL(app);
     url.searchParams.set("verify", revision);
@@ -447,6 +588,7 @@ async function verifyConnect(browser, releaseId, revision) {
       },
       { expectedMarker: appMarker, expectedRelease: releaseId },
     );
+    await requireDocumentShell(page, "Connect");
 
     await page.locator(".inv-poster-art img").waitFor({ state: "visible" });
     await page.waitForFunction(() => {
@@ -541,25 +683,7 @@ async function verifyConnect(browser, releaseId, revision) {
     await page.locator(".site-card")
       .filter({ has: page.locator(".sc-name b", { hasText: "SYCA" }) })
       .click();
-    await page.waitForFunction((expectedStats) => {
-      const stats = [...document.querySelectorAll("#heroStats .hero-stat")];
-      const exactStats = expectedStats.every(({ label, value }) => {
-        const stat = stats.find((candidate) => (
-          candidate.querySelector(".hs-l")?.textContent.trim() === label
-        ));
-        const counter = stat?.querySelector(".hs-v");
-        return counter?.dataset.target === value
-          && counter.textContent.trim() === value;
-      });
-      const overlay = document.querySelector("#loadOverlay");
-      return new URL(window.location.href).searchParams.get("site") === "SYCA"
-        && stats.length === expectedStats.length
-        && exactStats
-        && (!overlay || getComputedStyle(overlay).display === "none");
-    }, expectedSycaStats);
-    await page.waitForFunction(
-      () => !document.documentElement.classList.contains("shiny-busy"),
-    );
+    await waitForSycaHero(page);
 
     // This button is a Shiny input and the modal is emitted by observeEvent on
     // the server, so seeing it is an explicit bidirectional session round trip.
@@ -576,6 +700,36 @@ async function verifyConnect(browser, releaseId, revision) {
     if (await page.locator("#shiny-disconnected-overlay:visible").count()) {
       fail("Shiny disconnected after the interactive round trip");
     }
+
+    await page.locator(".modal-footer button")
+      .filter({ hasText: "Got it" })
+      .click();
+    await page.locator(".modal-content").waitFor({ state: "hidden" });
+    await requireStatusBarFills(page);
+    await requireInactiveTabContrast(page, "Connect desktop");
+
+    // The site load was user-initiated from the bare picker URL, so it owns one
+    // history entry: Back must return to the in-app picker, not leave the app.
+    await page.goBack({ waitUntil: "commit", timeout: 60_000 });
+    if (!sameOrigin(page.url(), expectedOrigin)) {
+      fail(`browser Back after a site load left the app for ${page.url().split("?")[0]}`);
+    }
+    try {
+      await page.waitForFunction(() => {
+        const visible = (element) => Boolean(element
+          && element.getClientRects().length > 0
+          && getComputedStyle(element).display !== "none"
+          && getComputedStyle(element).visibility !== "hidden");
+        return visible(document.querySelector("#splash"))
+          && !visible(document.querySelector("#mainTabsWrap"));
+      }, undefined, { timeout: 60_000 });
+    } catch {
+      fail(
+        "browser Back after a site load did not return to the picker "
+        + `(#splash visible and #mainTabsWrap hidden; url=${page.url()})`,
+      );
+    }
+
     await page.waitForTimeout(500);
     requireCleanPage(diagnostics, "Connect");
 
@@ -595,6 +749,99 @@ if (identity.schema_version !== 1
   fail("the committed production identity is malformed");
 }
 
+async function verifyConnectPhoneTabs(browser, releaseId, revision, tileState) {
+  const expectedOrigin = new URL(app).origin;
+  const page = await browser.newPage({
+    reducedMotion: "reduce",
+    viewport: { width: phoneViewport.width, height: phoneViewport.height },
+  });
+  page.setDefaultTimeout(180_000);
+  const diagnostics = watchPage(page, expectedOrigin);
+  watchCartoTiles(page, tileState);
+  try {
+    const url = new URL(app);
+    url.searchParams.set("site", "SYCA");
+    url.searchParams.set("verify", `${revision}-phone`);
+    const response = await page.goto(url.href, {
+      waitUntil: "domcontentloaded",
+      timeout: 90_000,
+    });
+    if (!response || !response.ok()) {
+      fail(
+        `Connect ${phoneViewport.label} navigation returned `
+        + `${response ? response.status() : "no response"}`,
+      );
+    }
+    if (!sameOrigin(page.url(), expectedOrigin)) {
+      fail(`Connect ${phoneViewport.label} navigation left ${expectedOrigin}`);
+    }
+    await page.waitForFunction(
+      (expectedRelease) => document.querySelector('meta[name="ddl-release-instance"]')
+        ?.getAttribute("content") === expectedRelease,
+      releaseId,
+    );
+    await requireDocumentShell(page, `Connect ${phoneViewport.label}`);
+    await waitForSycaHero(page);
+
+    for (const tab of mainTabs) {
+      const link = page
+        .locator(`#mainTabsWrap .nav-tabs a[data-value="${tab}"]`)
+        .first();
+      await link.click();
+      await page.waitForFunction((value) => {
+        const active = document.querySelector(
+          `#mainTabsWrap .nav-tabs a[data-value="${value}"]`,
+        );
+        return active?.classList.contains("active")
+          && !document.documentElement.classList.contains("shiny-busy");
+      }, tab);
+      await page.waitForTimeout(1_000);
+      const overflowing = await page.evaluate(() => (
+        [...document.querySelectorAll(".card-body")]
+          .filter((body) => body.getClientRects().length > 0
+            && getComputedStyle(body).visibility !== "hidden"
+            && body.scrollWidth > body.clientWidth + 4)
+          .map((body) => {
+            const header = body.closest(".card")?.querySelector(".card-header");
+            const name = header?.textContent.replace(/\s+/g, " ").trim()
+              || "(no card header)";
+            return `${name.slice(0, 80)} (${body.scrollWidth}px > ${body.clientWidth}px)`;
+          })
+      ));
+      if (overflowing.length) {
+        fail(
+          `Connect ${phoneViewport.label} "${tab}" tab has card bodies wider than `
+          + `the card: ${overflowing.join(" | ")}`,
+        );
+      }
+    }
+    await requireInactiveTabContrast(page, `Connect ${phoneViewport.label}`);
+
+    await page.waitForTimeout(500);
+    requireCleanPage(diagnostics, `Connect ${phoneViewport.label}`);
+    console.log(
+      `OK: Connect ${phoneViewport.label} renders ${mainTabs.length} main tabs without card overflow.`,
+    );
+  } finally {
+    await page.close();
+  }
+}
+
+function reportCartoTiles(tileState) {
+  if (tileState.cartoRequests > 0) {
+    console.log(`OK: the Connect pass requested ${cartoTileHost} basemap tiles.`);
+    return;
+  }
+  console.log(
+    "::warning title=CARTO basemap key not in effect::The Connect pass made no "
+    + `${cartoTileHost} tile request, so the app is serving the keyless fallback `
+    + "basemap. Set the suite CARTO basemap key in the Connect Cloud settings.",
+  );
+  if (requireCartoTiles) {
+    fail(`no ${cartoTileHost} tile request while INV_REQUIRE_CARTO_TILES=1`);
+  }
+}
+
 const revision = encodeURIComponent(
   `${process.env.GITHUB_SHA || "manual"}-${Date.now()}`,
 );
@@ -607,7 +854,10 @@ try {
   console.log(
     `OK: Pages serves exact reviewed bytes and renders cleanly at ${pagesViewports.map((value) => value.width).join("/")}px.`,
   );
-  await verifyConnect(browser, releaseId, revision);
+  const tileState = { cartoRequests: 0 };
+  await verifyConnect(browser, releaseId, revision, tileState);
+  await verifyConnectPhoneTabs(browser, releaseId, revision, tileState);
+  reportCartoTiles(tileState);
 } finally {
   await browser.close();
 }

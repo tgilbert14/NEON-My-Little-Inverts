@@ -66,6 +66,18 @@ app_body_ready "$valid_app application failed to start" "$release_id" &&
 app_body_ready "$valid_app" "sha256:$(printf '2%.0s' {1..64})" &&
   fail "wrong Connect release ID was accepted"
 
+valid_shell="<!DOCTYPE html><html lang=\"en\"><head><title>NEON My Little Inverts</title>$valid_app</head></html>"
+app_body_ready "$valid_shell" "$release_id" || fail "valid app shell identity was rejected"
+app_shell_ready "$valid_shell" || fail "valid app title and lang were rejected"
+untitled_shell="<!DOCTYPE html><html lang=\"en\"><head>$valid_app</head></html>"
+app_shell_ready "$untitled_shell" && fail "Connect HTML without the app title was accepted"
+[[ "$(app_shell_problem "$untitled_shell")" == *"missing <title>NEON My Little Inverts</title>"* ]] ||
+  fail "missing-title message does not name the title"
+wrong_title_shell="<!DOCTYPE html><html lang=\"en\"><head><title>Posit Connect Cloud</title>$valid_app</head></html>"
+app_shell_ready "$wrong_title_shell" && fail "Connect HTML with a host title was accepted"
+no_lang_shell="<!DOCTYPE html><html><head><title>NEON My Little Inverts</title>$valid_app</head></html>"
+app_shell_ready "$no_lang_shell" && fail "Connect HTML without lang=\"en\" was accepted"
+
 printf '%s\n' "{\"release_id\":\"$release_id\"}" > "$temporary/receipt.json"
 receipt_sha256=$(python3 -c '
 import hashlib, sys
@@ -85,4 +97,4 @@ with open(sys.argv[1], "rb") as handle:
 receipt_ready "$temporary/error-receipt.json" "$error_receipt_sha256" \
   "$release_id" && fail "error-page receipt with matching hash was accepted"
 
-echo "OK: post-deploy schema, exact-ID, receipt, and host-error rejection fixtures passed."
+echo "OK: post-deploy schema, exact-ID, document-shell, receipt, and host-error rejection fixtures passed."
