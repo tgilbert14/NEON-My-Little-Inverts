@@ -1141,5 +1141,64 @@ expect_error(
   "downloaded raw bytes must match the immutable source receipt"
 )
 
+# Independent headline oracles: the committed release passes, and a single
+# tampered hero value in a bundle meta, the site index, the provenance release,
+# or the verbatim field rows fails in a temp copy.
+source("scripts/inv_headline_oracles.R", local = TRUE)
+expect_true(
+  identical(inv_verify_headline_oracles(".")$network_opportunities, 7198L),
+  "committed release matches the frozen headline oracle and source receipt"
+)
+oracle_root <- tempfile("inv-headline-oracle-")
+dir.create(file.path(oracle_root, "data", "sites"), recursive = TRUE)
+invisible(file.copy(
+  list.files("data/sites", pattern = "[.]rds$", full.names = TRUE),
+  file.path(oracle_root, "data", "sites")
+))
+invisible(file.copy(c("data/site_index.rds", "data/source_receipt.json"),
+                    file.path(oracle_root, "data")))
+expect_true(
+  identical(inv_verify_headline_oracles(oracle_root)$sites, 34L),
+  "untampered headline-oracle copy passes"
+)
+oracle_bundle_path <- file.path(oracle_root, "data", "sites", "SYCA.rds")
+oracle_bundle <- readRDS(oracle_bundle_path)
+tampered_bundle <- oracle_bundle
+tampered_bundle$meta$n_count_samples <- tampered_bundle$meta$n_count_samples + 1L
+saveRDS(tampered_bundle, oracle_bundle_path)
+expect_error(
+  inv_verify_headline_oracles(oracle_root),
+  "SYCA bundle meta n_count_samples is 122; the frozen oracle is 121",
+  "headline oracle rejects a tampered bundle hero value"
+)
+tampered_bundle <- oracle_bundle
+tampered_bundle$provenance$source$release <- "RELEASE-2027"
+saveRDS(tampered_bundle, oracle_bundle_path)
+expect_error(
+  inv_verify_headline_oracles(oracle_root),
+  "re-baseline the frozen headline oracle as part of the release-bump procedure",
+  "headline oracle demands a re-baseline on a new release"
+)
+tampered_bundle <- oracle_bundle
+tampered_bundle$qc$source_quality$field <-
+  tampered_bundle$qc$source_quality$field[-1L, , drop = FALSE]
+saveRDS(tampered_bundle, oracle_bundle_path)
+expect_error(
+  inv_verify_headline_oracles(oracle_root),
+  "SYCA retains 192 non-[.]DNA NEON field rows",
+  "headline oracle ties n_opportunities to the verbatim field rows"
+)
+saveRDS(oracle_bundle, oracle_bundle_path)
+oracle_index_path <- file.path(oracle_root, "data", "site_index.rds")
+tampered_index <- readRDS(oracle_index_path)
+tampered_index$n_taxa_recorded[tampered_index$site == "HOPB"] <- 398L
+saveRDS(tampered_index, oracle_index_path)
+expect_error(
+  inv_verify_headline_oracles(oracle_root),
+  "HOPB site_index n_taxa_recorded is 398; the frozen oracle is 397",
+  "headline oracle rejects a tampered site-index hero value"
+)
+unlink(oracle_root, recursive = TRUE)
+
 cat(sprintf("Inverts adversarial release-verifier fixtures passed (%d checks).\n",
             checks))
