@@ -193,10 +193,10 @@ ui <- bslib::page_fillable(
           card(
             full_screen = TRUE,
             card_head("diagram-3", "Primary processing-status ledger",
-              info_pop("One row per planned sample",
-                p("Each sample NEON planned is one row, including samples that could not be collected. Each row has one main status."),
-                p("Support flags can overlap that status. For example, a sample the lab counted as zero but with no recorded sampled area gets the Area unavailable status and also the reported-zero flag."),
-                p("A processed sample with no taxonomy records stays unknown. It is never counted as zero."))),
+              info_pop("One row per field record",
+                p("Each NEON field record is one row, including planned samples that could not be collected (DNA samples are left out). Each row has one main status."),
+                p("Support flags can overlap that status. For example, a sample that could not be collected usually has no sampler recorded, so it shows Stratum fields unavailable and still keeps its sampling-impractical flag."),
+                p("A sample with no lab record, or with a lab record but no taxonomy, stays unknown. It is never counted as zero."))),
             inv_pin_toolbar("statusPin", "neon-inverts-status.png"),
             div(class = "smt-pinnable", id = "statusPin",
                 spin(plotlyOutput("overviewStatusPlot", height = "410px")))
@@ -239,25 +239,25 @@ ui <- bslib::page_fillable(
             card_head("rulers", "Collection density by event",
               info_pop("Density denominator",
                 p("Each point is the arithmetic mean of density-eligible samples in one exact stratum."),
-                p("The interval is the sample standard error when at least two density-eligible samples exist; it is not population uncertainty."),
-                p("Grey points rest on fewer than three samples: one sample has no interval, and an interval from two samples is unstable."))),
+                p("Error bars show one sample standard error when at least two samples have a usable density; they are not population uncertainty."),
+                p("Grey points rest on fewer than three such samples: one sample has no error bar, and an error bar from two samples is unreliable."))),
             inv_pin_toolbar("densityPin", "neon-inverts-density.png"),
             div(class = "smt-pinnable", id = "densityPin",
                 spin(plotlyOutput("stratumDensityPlot", height = "390px"))),
             p(class = "chart-caption",
-              "Diamonds mark event strata where NEON flagged at least one sample. Grey points rest on fewer than three samples.")
+              "Diamonds mark points where NEON flagged the collection of at least one sample; hover for the flag. Grey points rest on fewer than three samples with a usable density.")
           ),
           card(
             full_screen = TRUE,
             card_head("pie-chart", "Descriptive EPT composition by event",
               info_pop("Composition denominator",
                 p("The EPT share is averaged across positive-total count-eligible samples."),
-                p("Counts with unknown order stay in the denominator. NEON identifies some animals only to class or phylum (ostracods, nematodes, flatworms, mites). None of these are insects, so they can never be EPT. The dotted line shows the share identified to order."))),
+                p("Animals with no assigned order still count in the total. Most were identified only to a broad group such as seed shrimp (ostracods), roundworms, flatworms, or mites; a few snails, mites, and worms have no order in NEON's taxonomy. In this release every insect has an order, so none of these can be EPT. The dotted line shows the share of counted animals assigned to an order."))),
             inv_pin_toolbar("compositionPin", "neon-inverts-composition.png"),
             div(class = "smt-pinnable", id = "compositionPin",
                 spin(plotlyOutput("stratumCompositionPlot", height = "390px"))),
             p(class = "chart-caption",
-              "Diamonds mark event strata where NEON flagged at least one sample.")
+              "Diamonds mark points where NEON flagged the collection of at least one sample; hover for the flag.")
           )
         ),
         card(

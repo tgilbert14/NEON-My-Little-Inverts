@@ -180,7 +180,7 @@ function invAddH(name, fn) {
 }
 function invRegisterHandlers() {
   if (!window.Shiny || !Shiny.addCustomMessageHandler) return false;
-  window.__invHandlers = true;     // marker (not a guard — invAddH is per-handler idempotent)
+  window.__invHandlers = true;     // marker (not a guard; invAddH is per-handler idempotent)
   {
     invAddH("countUp", function (_msg) {
       setTimeout(runCounters, 60);

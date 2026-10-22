@@ -135,10 +135,12 @@ INV_STATUS_META <- data.frame(
     "#9aa8ac", "#7c8f95", "#8b6e4f", "#8b6b9c", "#d87858",
     "#d4a13a", "#c97654", "#a35d7a", "#0e8f9c", "#3f9e6e"
   ),
-  # Provisional review tiers for the QC flag chips. A tier never removes a row.
+  # Review tiers for the QC flag chips (aquatics review, 2026-10-21): high only
+  # where an identified sample drops out of every count view; a status that
+  # keeps counts but loses density is warn. A tier never removes a row.
   qc_level = c(
     "info", "info", "info", "warn", "warn",
-    "high", "high", "high", "info", "ok"
+    "high", "warn", "warn", "info", "ok"
   ),
   stringsAsFactors = FALSE
 )

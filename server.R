@@ -588,41 +588,80 @@ server <- function(input, output, session) {
                       selected = if (length(choices)) choices[[1L]] else NULL)
   }, ignoreInit = TRUE)
 
-  # NEON field dataQF values per exact stratum, computed at runtime from the
-  # retained field QC layer. Display only: a flag never removes a sample.
+  # NEON field dataQF per exact stratum, computed at runtime from the retained
+  # field QC layer. Display only: a flag never removes a sample. Rows join on the
+  # field-row identity, because sampleID is blank on most uncollected rows;
+  # samplerType stays out of the key since the ledger says "(not recorded)" where
+  # the verbatim layer is blank. "legacyData" (early paper forms) is a
+  # record-keeping note: shown in the hover, never marked. The other values
+  # describe the collection itself. A chart point counts flags only among the
+  # samples behind that point (its own denominator).
+  field_row_key <- function(d) {
+    cols <- c("siteID", "eventID", "namedLocation", "sampleID", "sampleCode",
+              "sampleNumber", "collectDate", "habitatType")
+    do.call(paste, c(lapply(cols, function(k) {
+      v <- d[[k]]
+      if (is.null(v)) v <- rep(NA, nrow(d))
+      ifelse(is.na(v), "<NA>", as.character(v))
+    }), sep = "\x1f"))
+  }
   stratum_field_flags <- reactive({
     req(rv$bundle, rv$opportunities)
-    empty <- data.frame(stratum_key = character(), n_field_flagged = integer(),
-                        field_dataQF_values = character(),
-                        stringsAsFactors = FALSE)
-    field <- rv$bundle$qc$source_quality$field
-    if (!is.data.frame(field) || !all(c("sampleID", "dataQF") %in% names(field))) {
-      return(empty)
-    }
-    qf <- trimws(as.character(field$dataQF))
-    keep <- !is.na(qf) & nzchar(qf) & !is.na(field$sampleID)
-    if (!any(keep)) return(empty)
-    flagged <- data.frame(sampleID = as.character(field$sampleID[keep]),
-                          dataQF = qf[keep], stringsAsFactors = FALSE)
     opportunities <- rv$opportunities
-    flagged$stratum_key <- as.character(opportunities$stratum_key)[
-      match(flagged$sampleID, as.character(opportunities$sampleID))
-    ]
-    flagged <- flagged[!is.na(flagged$stratum_key), , drop = FALSE]
-    if (!nrow(flagged)) return(empty)
-    keys <- sort(unique(flagged$stratum_key))
+    field <- rv$bundle$qc$source_quality$field
+    qf <- rep(NA_character_, nrow(opportunities))
+    if (is.data.frame(field) && "dataQF" %in% names(field) && nrow(field)) {
+      at <- match(field_row_key(opportunities), field_row_key(field))
+      qf <- trimws(as.character(field$dataQF[at]))
+      qf[!is.na(qf) & !nzchar(qf)] <- NA_character_
+    }
+    legacy <- !is.na(qf) & qf == "legacyData"
+    marked <- !is.na(qf) & !legacy
+    density <- opportunities$density_eligible %in% TRUE
+    total <- num(opportunities$total_estimated_count)
+    composition <- opportunities$count_eligible %in% TRUE & is.finite(total) &
+      total > 0
+    key <- as.character(opportunities$stratum_key)
+    keys <- sort(unique(key[!is.na(key)]))
+    if (!length(keys)) return(NULL)
+    by_key <- split(seq_along(key), factor(key, levels = keys))
+    values_of <- function(rows) {
+      v <- sort(unique(qf[rows]))
+      if (length(v)) paste(v, collapse = "; ") else ""
+    }
+    count_of <- function(flag, eligible) {
+      vapply(by_key, function(i) sum(flag[i] & eligible[i]), integer(1))
+    }
+    values_for <- function(flag, eligible) {
+      vapply(by_key, function(i) values_of(i[flag[i] & eligible[i]]), character(1))
+    }
+    any_row <- rep(TRUE, length(key))
     data.frame(
       stratum_key = keys,
-      n_field_flagged = vapply(keys, function(key) {
-        length(unique(flagged$sampleID[flagged$stratum_key == key]))
-      }, integer(1)),
-      field_dataQF_values = vapply(keys, function(key) {
-        paste(sort(unique(flagged$dataQF[flagged$stratum_key == key])),
-              collapse = "; ")
-      }, character(1)),
+      n_field_flagged = count_of(!is.na(qf), any_row),
+      field_dataQF_values = values_for(!is.na(qf), any_row),
+      density_flag_n = count_of(marked, density),
+      density_flag_values = values_for(marked, density),
+      density_legacy_n = count_of(legacy, density),
+      composition_flag_n = count_of(marked, composition),
+      composition_flag_values = values_for(marked, composition),
+      composition_legacy_n = count_of(legacy, composition),
       stringsAsFactors = FALSE, row.names = NULL
     )
   })
+
+  # Hover and pin-card lines for NEON field flags at one chart's points.
+  field_flag_lines <- function(flag_n, flag_values, legacy_n, denominator) {
+    list(
+      marked = ifelse(flag_n > 0L, sprintf(paste0(
+        "NEON field flag on %d of %d samples in this point: \u201c%s\u201d. ",
+        "Flagged samples are still included."), flag_n, denominator, flag_values), ""),
+      legacy = ifelse(legacy_n > 0L, sprintf(paste0(
+        "NEON record note on %d of %d samples: \u201clegacyData\u201d (entered on ",
+        "early paper forms with fewer automatic checks; no specific problem is ",
+        "reported)."), legacy_n, denominator), "")
+    )
+  }
 
   selected_strata <- reactive({
     req(rv$strata, input$stratumAquaticType, input$stratumHabitat,
@@ -633,13 +672,22 @@ server <- function(input, output, session) {
         rv$strata$samplerType == input$stratumSampler, , drop = FALSE
     ]
     flags <- stratum_field_flags()
-    flag_row <- match(as.character(out$stratum_key), flags$stratum_key)
-    out$n_field_flagged <- as.integer(ifelse(
-      is.na(flag_row), 0L, flags$n_field_flagged[flag_row]
-    ))
-    out$field_dataQF_values <- as.character(ifelse(
-      is.na(flag_row), "", flags$field_dataQF_values[flag_row]
-    ))
+    flag_row <- if (is.null(flags)) rep(NA_integer_, nrow(out)) else
+      match(as.character(out$stratum_key), flags$stratum_key)
+    take <- function(column, empty) {
+      if (is.null(flags)) return(rep(empty, nrow(out)))
+      v <- flags[[column]][flag_row]
+      v[is.na(flag_row)] <- empty
+      v
+    }
+    for (column in c("n_field_flagged", "density_flag_n", "density_legacy_n",
+                     "composition_flag_n", "composition_legacy_n")) {
+      out[[column]] <- as.integer(take(column, 0L))
+    }
+    for (column in c("field_dataQF_values", "density_flag_values",
+                     "composition_flag_values")) {
+      out[[column]] <- as.character(take(column, ""))
+    }
     out$plot_date <- suppressWarnings(as.Date(out$collectDate_min))
     out[order(out$plot_date, out$eventID), , drop = FALSE]
   })
@@ -675,15 +723,14 @@ server <- function(input, output, session) {
     data <- strata[keep, , drop = FALSE]
     n_density <- as.integer(num(data$n_density_samples))
     small_n <- !is.na(n_density) & n_density < 3L
-    flagged <- num(data$n_field_flagged) > 0
-    flag_text <- ifelse(flagged, sprintf(
-      "NEON field flag on %d of %d samples: %s",
-      as.integer(data$n_field_flagged), as.integer(data$n_opportunities),
-      data$field_dataQF_values
-    ), "")
-    small_text <- ifelse(n_density %in% 1L, "one sample, no interval",
+    flagged <- data$density_flag_n > 0L
+    flag_lines <- field_flag_lines(data$density_flag_n, data$density_flag_values,
+                                   data$density_legacy_n, n_density)
+    flag_text <- flag_lines$marked
+    legacy_text <- flag_lines$legacy
+    small_text <- ifelse(n_density %in% 1L, "one sample, no error bar",
                          ifelse(n_density %in% 2L,
-                                "two samples, the interval is unstable", ""))
+                                "two samples, the error bar is unreliable", ""))
     data$hover <- paste0(
       sprintf(
         paste0("%s<br>%s · %s · %s<br>",
@@ -694,7 +741,8 @@ server <- function(input, output, session) {
         data$n_count_samples, data$n_opportunities
       ),
       ifelse(nzchar(small_text), paste0("<br>", small_text), ""),
-      ifelse(flagged, paste0("<br>", htmltools::htmlEscape(flag_text)), "")
+      ifelse(nzchar(flag_text), paste0("<br>", htmltools::htmlEscape(flag_text)), ""),
+      ifelse(nzchar(legacy_text), paste0("<br>", htmltools::htmlEscape(legacy_text)), "")
     )
     se <- num(data$se_sample_density_m2)
     mean_density <- num(data$mean_sample_density_m2)
@@ -704,7 +752,7 @@ server <- function(input, output, session) {
       ifelse(is.finite(se),
              sprintf("Mean density %.1f /m² (SE %.1f)", mean_density, se),
              sprintf("Mean density %.1f /m²", mean_density)),
-      sprintf("n density = %d", n_density), small_text, flag_text
+      sprintf("n density = %d", n_density), small_text, flag_text, legacy_text
     )
     plotly::plot_ly(
       data, x = ~plot_date, y = ~mean_sample_density_m2,
@@ -739,17 +787,18 @@ server <- function(input, output, session) {
       "No positive-total composition samples for this method family."
     ))
     data <- strata[keep, , drop = FALSE]
-    flagged <- num(data$n_field_flagged) > 0
-    flag_text <- ifelse(flagged, sprintf(
-      "NEON field flag on %d of %d samples: %s",
-      as.integer(data$n_field_flagged), as.integer(data$n_opportunities),
-      data$field_dataQF_values
-    ), "")
-    n_label <- sprintf("composition n = %d",
-                       as.integer(num(data$n_composition_samples)))
+    n_composition <- as.integer(num(data$n_composition_samples))
+    flagged <- data$composition_flag_n > 0L
+    flag_lines <- field_flag_lines(data$composition_flag_n,
+                                   data$composition_flag_values,
+                                   data$composition_legacy_n, n_composition)
+    flag_text <- flag_lines$marked
+    legacy_text <- flag_lines$legacy
+    n_label <- sprintf("composition n = %d", n_composition)
     data$ept_hover <- paste0(
       n_label,
-      ifelse(flagged, paste0("<br>", htmltools::htmlEscape(flag_text)), "")
+      ifelse(nzchar(flag_text), paste0("<br>", htmltools::htmlEscape(flag_text)), ""),
+      ifelse(nzchar(legacy_text), paste0("<br>", htmltools::htmlEscape(legacy_text)), "")
     )
     data$order_hover <- n_label
     ept <- num(data$mean_sample_pct_ept_of_all_estimated_count)
@@ -759,9 +808,9 @@ server <- function(input, output, session) {
       paste0("Date ", format(data$plot_date, "%Y-%m-%d")),
       ifelse(is.finite(ept), sprintf("EPT share %.1f%%", ept),
              "EPT share unavailable"),
-      ifelse(is.finite(ordered), sprintf("Identified to order %.1f%%", ordered),
-             "Identified to order unavailable"),
-      n_label, flag_text
+      ifelse(is.finite(ordered), sprintf("Assigned to an order %.1f%%", ordered),
+             "Assigned to an order: unavailable"),
+      n_label, flag_text, legacy_text
     )
     plotly::plot_ly(data, x = ~plot_date) %>%
       plotly::add_trace(
@@ -780,11 +829,11 @@ server <- function(input, output, session) {
       ) %>%
       plotly::add_lines(
         y = ~mean_sample_pct_order_classified_estimated_count,
-        name = "Identified to order", line = list(color = DDL$gold, width = 2,
-                                                    dash = "dot"),
+        name = "Assigned to an order", line = list(color = DDL$gold, width = 2,
+                                                     dash = "dot"),
         text = ~order_hover, customdata = ~card,
         hovertemplate = paste0(
-          "%{x|%Y-%m-%d}<br>identified to order %{y:.1f}%<br>",
+          "%{x|%Y-%m-%d}<br>assigned to an order %{y:.1f}%<br>",
           "%{text}<extra></extra>"
         )
       ) %>%
@@ -836,7 +885,7 @@ server <- function(input, output, session) {
         paste0(
           "<b>%s</b> taxon rows · support denominator <b>%s count-eligible samples</b> · ",
           "density denominator <b>%s samples with usable area</b> · ",
-          "mean share identified to order <b>%s</b>. ",
+          "mean share assigned to an order <b>%s</b>. ",
           "A missing taxonomy record is unknown; it is never zero-filled."
         ),
         inv_value(nrow(taxa)), inv_value(stratum$n_count_samples[[1L]]),
@@ -958,8 +1007,8 @@ server <- function(input, output, session) {
         ),
         if ("n_taxa_recorded" %in% keys) paste(
           "", "Taxa recorded pools all years, habitats, and samplers, mixes",
-          "identification ranks, and is not adjusted for how many animals each",
-          "sample held, so it is not a richness comparison between sites."
+          "identification levels, and is not adjusted for how much each site",
+          "was sampled, so it is not a richness comparison between sites."
         ) else ""
       ))
     )
@@ -1207,7 +1256,9 @@ server <- function(input, output, session) {
                          " qc-flag-click", if (on) " is-selected" else ""),
           `data-status` = status,
           `aria-pressed` = if (on) "true" else "false",
-          title = chips$meaning[[i]],
+          title = if (identical(status, "unstratifiable")) {
+            "Mostly samples that could not be collected (no sampler was recorded)."
+          } else chips$meaning[[i]],
           tags$span(class = "qcf-title", chips$label[[i]]),
           tags$span(class = "qcf-n", inv_value(chips$n[[i]]))
         )

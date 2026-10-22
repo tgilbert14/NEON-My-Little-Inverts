@@ -124,16 +124,20 @@ for (const retired of [
 requireContract(count(cover, /<details class="honesty">/g) === 1, "cover needs one collapsed honesty disclosure");
 // One assertion per scientific boundary, in the plain words the cover uses.
 requireContract(
-  /Each sample NEON planned stays in the record, including ones that could not be collected\./.test(cover)
-    && /A missing record is unknown and is never counted as zero\./.test(cover),
-  "planned-sample/missing-is-never-zero boundary is missing",
+  /Every NEON field record is kept, including planned samples that could not be collected; DNA samples are left out\./.test(cover)
+    && /A missing record is unknown and is never counted as zero, and an animal not found in a sample may still live there\./.test(cover),
+  "field-record/missing-is-never-zero/not-found-is-not-absent boundary is missing",
 );
 requireContract(
   /Counts and densities describe what each sample collected; they are not population sizes\./.test(cover),
   "population boundary is missing",
 );
 requireContract(
-  /\(EPT\) describes the catch and does not grade water quality\./.test(cover),
+  /Taxa counts mix identification levels, so they are not species counts\./.test(cover),
+  "mixed-rank taxa boundary is missing",
+);
+requireContract(
+  /\(EPT\) describes the catch and does not grade stream health or water quality\./.test(cover),
   "EPT rating boundary is missing",
 );
 requireContract(
