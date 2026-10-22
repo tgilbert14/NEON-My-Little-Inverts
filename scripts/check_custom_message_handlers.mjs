@@ -1,6 +1,17 @@
 import fs from "node:fs";
+import path from "node:path";
 
-const files = ["ui.R", "www/app.js", "www/pincards.js"];
+// Every root-level R file (including an app.R when one exists), R/*.R, and
+// www/*.js except the vendored www/vendor/** tree.
+function listFiles(dir, extension) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
+    .map((entry) => (dir === "." ? entry.name : path.posix.join(dir, entry.name)))
+    .sort();
+}
+const files = [...listFiles(".", ".R"), ...listFiles("R", ".R"), ...listFiles("www", ".js")];
 const expectedNames = [
   "countUp",
   "invSaveSite",

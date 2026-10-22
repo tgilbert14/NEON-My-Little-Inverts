@@ -30,6 +30,26 @@ app_body_ready() {
     ! body_has_host_error "$body"
 }
 
+# Document shell contract, checked only after the exact identity matched:
+# the Connect HTML must name the app in <title> and declare lang="en".
+app_title='<title>NEON My Little Inverts</title>'
+app_lang='<html lang="en"'
+
+app_shell_problem() {
+  local body="$1"
+  local problems=()
+  grep -Fq "$app_title" <<<"$body" || problems+=("missing $app_title")
+  grep -Fq "$app_lang" <<<"$body" || problems+=("missing $app_lang")
+  if (( ${#problems[@]} )); then
+    local IFS=";"
+    printf '%s\n' "${problems[*]}"
+  fi
+}
+
+app_shell_ready() {
+  [[ -z "$(app_shell_problem "$1")" ]]
+}
+
 receipt_ready() {
   local receipt="$1"
   local expected_sha256="$2"
@@ -125,9 +145,14 @@ while (( SECONDS < deadline )); do
     app_ready=true
   fi
 
+  if [[ "$app_ready" == true ]] && ! app_shell_ready "$app_body"; then
+    echo "Connect serves exact production instance $expected_release_id, but its HTML fails the document shell contract: $(app_shell_problem "$app_body")." >&2
+    exit 1
+  fi
+
   if [[ "$pages_ready" == true && "$pages_receipt_ready" == true &&
         "$app_ready" == true ]]; then
-    echo "OK: Pages and Connect initial HTTP responses serve exact production instance $expected_release_id."
+    echo "OK: Pages and Connect initial HTTP responses serve exact production instance $expected_release_id with the app title and lang=\"en\"."
     exit 0
   fi
   echo "Attempt $attempt: waiting for exact Pages + Connect identity (pages=$pages_ready receipt=$pages_receipt_ready app=$app_ready)..."
