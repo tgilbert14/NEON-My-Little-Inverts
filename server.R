@@ -26,7 +26,16 @@ server <- function(input, output, session) {
           font = list(color = "#fff", family = "Rubik", size = 13)
         )
       ) %>%
-      plotly::config(displayModeBar = FALSE, responsive = TRUE)
+      plotly::config(
+        displayModeBar = TRUE, displaylogo = FALSE, responsive = TRUE,
+        # Keep only the camera: every other default 2-D button is removed.
+        modeBarButtonsToRemove = list(
+          "zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
+          "autoScale2d", "resetScale2d", "hoverClosestCartesian",
+          "hoverCompareCartesian", "toggleSpikelines"
+        ),
+        toImageButtonOptions = list(format = "png", scale = 2)
+      )
   }
 
   note_plot <- function(message, icon = "\U0001F990") {
@@ -44,17 +53,40 @@ server <- function(input, output, session) {
       plotly::config(displayModeBar = FALSE)
   }
 
-  dt <- function(data, page_length = 12L, escape = TRUE) {
+  dt <- function(data, page_length = 12L, escape = TRUE, search = FALSE) {
     DT::datatable(
       data, rownames = FALSE, escape = escape, selection = "none",
       options = list(
         pageLength = page_length,
         scrollX = TRUE,
         autoWidth = TRUE,
-        dom = "tip"
+        dom = if (isTRUE(search)) "ftip" else "tip"
       ),
       class = "compact stripe hover"
     )
+  }
+
+  # Pin-card HTML for www/pincards.js. Every data string is escaped here, so
+  # callers pass raw values. Empty or NA lines are dropped per card; the
+  # data-tag lets pincards.js pulse an existing card instead of duplicating it.
+  pin_card <- function(tag, title, ...) {
+    lines <- list(...)
+    esc <- htmltools::htmlEscape
+    vapply(seq_along(tag), function(i) {
+      parts <- vapply(lines, function(x) {
+        value <- as.character(x[[if (length(x) == 1L) 1L else i]])
+        if (!length(value) || is.na(value)) "" else value
+      }, character(1))
+      parts <- parts[nzchar(parts)]
+      paste0(
+        "<span data-tag='", esc(tag[[i]], attribute = TRUE), "'></span>",
+        "<b>", esc(title[[if (length(title) == 1L) 1L else i]]), "</b>",
+        if (length(parts)) paste0(
+          "<br/><span class='smt-pin-stats'>",
+          paste(esc(parts), collapse = "<br/>"), "</span>"
+        ) else ""
+      )
+    }, character(1))
   }
 
   rv <- reactiveValues(
@@ -320,24 +352,40 @@ server <- function(input, output, session) {
   output$overviewStatusPlot <- renderPlotly({
     req(rv$opportunities)
     ledger <- inv_status_ledger(rv$opportunities)
-    colors <- c(
-      "#9aa8ac", "#7c8f95", "#8b6e4f", "#8b6b9c", "#d87858",
-      "#d4a13a", "#c97654", "#3f9e6e", "#0e8f9c"
+    # Colour is keyed by record_status, never by row position.
+    colors <- INV_STATUS_META$color[
+      match(ledger$record_status, INV_STATUS_META$record_status)
+    ]
+    width <- session$clientData[["output_overviewStatusPlot_width"]]
+    narrow <- is.numeric(width) && length(width) == 1L && width < 500
+    ledger$card <- pin_card(
+      paste0("status-", ledger$record_status), ledger$label,
+      sprintf("%s field opportunities", vapply(ledger$n, inv_value, character(1))),
+      ledger$meaning
     )
-    ledger$label <- factor(ledger$label, levels = rev(ledger$label))
+    # On phones, wrap long status names so the axis margin stays near 130 px
+    # (plotly's automargin would otherwise widen it to fit one-line labels).
+    labels <- if (narrow) vapply(ledger$label, function(x) {
+      paste(strwrap(x, width = 20L), collapse = "<br>")
+    }, character(1), USE.NAMES = FALSE) else ledger$label
+    ledger$label <- factor(labels, levels = rev(labels))
     plotly::plot_ly(
       ledger, x = ~n, y = ~label, type = "bar", orientation = "h",
       marker = list(color = colors),
-      customdata = ~meaning,
+      text = ~meaning, textposition = "none", customdata = ~card,
       hovertemplate = paste0(
         "%{y}<br><b>%{x}</b> opportunities<br>",
-        "%{customdata}<extra></extra>"
+        "%{text}<extra></extra>"
       )
     ) %>%
-      plotly_theme(legend = FALSE, left = 190L) %>%
+      plotly_theme(legend = FALSE, left = if (narrow) 130L else 190L) %>%
       plotly::layout(
-        xaxis = list(title = "Field opportunities", rangemode = "tozero"),
-        yaxis = list(title = ""), showlegend = FALSE
+        xaxis = if (narrow) list(title = "Opportunities", rangemode = "tozero",
+                                 tickangle = 0, nticks = 4) else
+          list(title = "Field opportunities", rangemode = "tozero"),
+        yaxis = if (narrow) list(title = "", tickfont = list(size = 10)) else
+          list(title = ""),
+        showlegend = FALSE
       )
   })
 
@@ -353,9 +401,15 @@ server <- function(input, output, session) {
       sum
     )
     names(out)[[3L]] <- "n"
-    out$label <- INV_STATUS_META$label[
-      match(out$record_status, INV_STATUS_META$record_status)
-    ]
+    out$label <- factor(
+      INV_STATUS_META$label[match(out$record_status, INV_STATUS_META$record_status)],
+      levels = INV_STATUS_META$label
+    )
+    out$card <- pin_card(
+      paste0("timeline-", out$year, "-", out$record_status),
+      out$year, as.character(out$label),
+      sprintf("%s field opportunities", vapply(out$n, inv_value, character(1)))
+    )
     out
   })
 
@@ -363,8 +417,9 @@ server <- function(input, output, session) {
     timeline <- overview_timeline()
     plotly::plot_ly(
       timeline, x = ~year, y = ~n, color = ~label, type = "bar",
-      colors = c("#0e8f9c", "#3f9e6e", "#d4a13a", "#c97654", "#8b6b9c",
-                 "#8b6e4f", "#7c8f95", "#9aa8ac", "#60757b"),
+      # One colour per status everywhere, matched by label name.
+      colors = stats::setNames(INV_STATUS_META$color, INV_STATUS_META$label),
+      customdata = ~card,
       hovertemplate = "%{x}<br>%{fullData.name}: %{y}<extra></extra>"
     ) %>%
       plotly_theme() %>%
@@ -381,10 +436,10 @@ server <- function(input, output, session) {
     )))))
     div(
       class = "denominator-note compact-note", bs_icon("info-circle"),
-      sprintf(
+      tags$span(sprintf(
         "%s opportunities are shown. %s have no usable collection date and remain in a separate category.",
         inv_value(nrow(rv$opportunities)), inv_value(missing_date)
-      )
+      ))
     )
   })
 
@@ -413,7 +468,7 @@ server <- function(input, output, session) {
         inv_value(rv$meta$n_unstratifiable)
       ))),
       tags$li(HTML(sprintf(
-        "The record contains <b>%s distinct taxa</b> across retained identification ranks: %s.",
+        "The record contains <b>%s taxa recorded</b> at mixed identification ranks; a family can appear beside its own genera. Ranks present: %s.",
         inv_value(rv$meta$n_taxa_recorded), htmltools::htmlEscape(rank_text)
       ))),
       tags$li(paste(
@@ -458,6 +513,42 @@ server <- function(input, output, session) {
                       selected = if (length(choices)) choices[[1L]] else NULL)
   }, ignoreInit = TRUE)
 
+  # NEON field dataQF values per exact stratum, computed at runtime from the
+  # retained field QC layer. Display only: a flag never removes a sample.
+  stratum_field_flags <- reactive({
+    req(rv$bundle, rv$opportunities)
+    empty <- data.frame(stratum_key = character(), n_field_flagged = integer(),
+                        field_dataQF_values = character(),
+                        stringsAsFactors = FALSE)
+    field <- rv$bundle$qc$source_quality$field
+    if (!is.data.frame(field) || !all(c("sampleID", "dataQF") %in% names(field))) {
+      return(empty)
+    }
+    qf <- trimws(as.character(field$dataQF))
+    keep <- !is.na(qf) & nzchar(qf) & !is.na(field$sampleID)
+    if (!any(keep)) return(empty)
+    flagged <- data.frame(sampleID = as.character(field$sampleID[keep]),
+                          dataQF = qf[keep], stringsAsFactors = FALSE)
+    opportunities <- rv$opportunities
+    flagged$stratum_key <- as.character(opportunities$stratum_key)[
+      match(flagged$sampleID, as.character(opportunities$sampleID))
+    ]
+    flagged <- flagged[!is.na(flagged$stratum_key), , drop = FALSE]
+    if (!nrow(flagged)) return(empty)
+    keys <- sort(unique(flagged$stratum_key))
+    data.frame(
+      stratum_key = keys,
+      n_field_flagged = vapply(keys, function(key) {
+        length(unique(flagged$sampleID[flagged$stratum_key == key]))
+      }, integer(1)),
+      field_dataQF_values = vapply(keys, function(key) {
+        paste(sort(unique(flagged$dataQF[flagged$stratum_key == key])),
+              collapse = "; ")
+      }, character(1)),
+      stringsAsFactors = FALSE, row.names = NULL
+    )
+  })
+
   selected_strata <- reactive({
     req(rv$strata, input$stratumAquaticType, input$stratumHabitat,
         input$stratumSampler)
@@ -466,6 +557,14 @@ server <- function(input, output, session) {
         rv$strata$habitatType == input$stratumHabitat &
         rv$strata$samplerType == input$stratumSampler, , drop = FALSE
     ]
+    flags <- stratum_field_flags()
+    flag_row <- match(as.character(out$stratum_key), flags$stratum_key)
+    out$n_field_flagged <- as.integer(ifelse(
+      is.na(flag_row), 0L, flags$n_field_flagged[flag_row]
+    ))
+    out$field_dataQF_values <- as.character(ifelse(
+      is.na(flag_row), "", flags$field_dataQF_values[flag_row]
+    ))
     out$plot_date <- suppressWarnings(as.Date(out$collectDate_min))
     out[order(out$plot_date, out$eventID), , drop = FALSE]
   })
@@ -499,20 +598,49 @@ server <- function(input, output, session) {
       "No density-eligible event strata for this water type, habitat, and sampler."
     ))
     data <- strata[keep, , drop = FALSE]
-    data$hover <- sprintf(
-      paste0("%s<br>%s · %s · %s<br>",
-             "mean %.1f /m² · n density = %d<br>",
-             "n count = %d · n opportunities = %d"),
-      data$eventID, data$aquaticSiteType, data$habitatType, data$samplerType,
-      data$mean_sample_density_m2, data$n_density_samples,
-      data$n_count_samples, data$n_opportunities
+    n_density <- as.integer(num(data$n_density_samples))
+    small_n <- !is.na(n_density) & n_density < 3L
+    flagged <- num(data$n_field_flagged) > 0
+    flag_text <- ifelse(flagged, sprintf(
+      "NEON field flag on %d of %d samples: %s",
+      as.integer(data$n_field_flagged), as.integer(data$n_opportunities),
+      data$field_dataQF_values
+    ), "")
+    small_text <- ifelse(n_density %in% 1L, "one sample, no interval",
+                         ifelse(n_density %in% 2L,
+                                "two samples, the interval is unstable", ""))
+    data$hover <- paste0(
+      sprintf(
+        paste0("%s<br>%s · %s · %s<br>",
+               "mean %.1f /m² · n density = %d<br>",
+               "n count = %d · n opportunities = %d"),
+        data$eventID, data$aquaticSiteType, data$habitatType, data$samplerType,
+        data$mean_sample_density_m2, data$n_density_samples,
+        data$n_count_samples, data$n_opportunities
+      ),
+      ifelse(nzchar(small_text), paste0("<br>", small_text), ""),
+      ifelse(flagged, paste0("<br>", htmltools::htmlEscape(flag_text)), "")
+    )
+    se <- num(data$se_sample_density_m2)
+    mean_density <- num(data$mean_sample_density_m2)
+    data$card <- pin_card(
+      paste0("density-", data$stratum_key), data$eventID,
+      paste0("Date ", format(data$plot_date, "%Y-%m-%d")),
+      ifelse(is.finite(se),
+             sprintf("Mean density %.1f /m² (SE %.1f)", mean_density, se),
+             sprintf("Mean density %.1f /m²", mean_density)),
+      sprintf("n density = %d", n_density), small_text, flag_text
     )
     plotly::plot_ly(
       data, x = ~plot_date, y = ~mean_sample_density_m2,
       type = "scatter", mode = "lines+markers", text = ~hover,
+      customdata = ~card,
       hovertemplate = "%{text}<extra></extra>",
       line = list(color = DDL$teal, width = 2),
-      marker = list(color = DDL$teal, size = 9),
+      marker = list(color = ifelse(small_n, "#94a7ad", DDL$teal),
+                    symbol = ifelse(flagged, "diamond", "circle"),
+                    size = ifelse(flagged, 12, 9),
+                    line = list(color = "#ffffff", width = 1)),
       error_y = list(
         type = "data", array = num(data$se_sample_density_m2),
         visible = TRUE, color = DDL$muted, thickness = 1.2
@@ -536,24 +664,53 @@ server <- function(input, output, session) {
       "No positive-total composition samples for this method family."
     ))
     data <- strata[keep, , drop = FALSE]
+    flagged <- num(data$n_field_flagged) > 0
+    flag_text <- ifelse(flagged, sprintf(
+      "NEON field flag on %d of %d samples: %s",
+      as.integer(data$n_field_flagged), as.integer(data$n_opportunities),
+      data$field_dataQF_values
+    ), "")
+    n_label <- sprintf("composition n = %d",
+                       as.integer(num(data$n_composition_samples)))
+    data$ept_hover <- paste0(
+      n_label,
+      ifelse(flagged, paste0("<br>", htmltools::htmlEscape(flag_text)), "")
+    )
+    data$order_hover <- n_label
+    ept <- num(data$mean_sample_pct_ept_of_all_estimated_count)
+    ordered <- num(data$mean_sample_pct_order_classified_estimated_count)
+    data$card <- pin_card(
+      paste0("composition-", data$stratum_key), data$eventID,
+      paste0("Date ", format(data$plot_date, "%Y-%m-%d")),
+      ifelse(is.finite(ept), sprintf("EPT share %.1f%%", ept),
+             "EPT share unavailable"),
+      ifelse(is.finite(ordered), sprintf("Identified to order %.1f%%", ordered),
+             "Identified to order unavailable"),
+      n_label, flag_text
+    )
     plotly::plot_ly(data, x = ~plot_date) %>%
-      plotly::add_lines(
+      plotly::add_trace(
         y = ~mean_sample_pct_ept_of_all_estimated_count,
+        type = "scatter", mode = "lines+markers",
         name = "EPT share", line = list(color = DDL$teal, width = 2.5),
-        customdata = ~n_composition_samples,
+        marker = list(color = DDL$teal,
+                      symbol = ifelse(flagged, "diamond", "circle"),
+                      size = ifelse(flagged, 11, 7),
+                      line = list(color = "#ffffff", width = 1)),
+        text = ~ept_hover, customdata = ~card,
         hovertemplate = paste0(
           "%{x|%Y-%m-%d}<br>EPT share %{y:.1f}%<br>",
-          "composition n = %{customdata}<extra></extra>"
+          "%{text}<extra></extra>"
         )
       ) %>%
       plotly::add_lines(
         y = ~mean_sample_pct_order_classified_estimated_count,
-        name = "Order classified", line = list(color = DDL$gold, width = 2,
-                                                 dash = "dot"),
-        customdata = ~n_composition_samples,
+        name = "Identified to order", line = list(color = DDL$gold, width = 2,
+                                                    dash = "dot"),
+        text = ~order_hover, customdata = ~card,
         hovertemplate = paste0(
-          "%{x|%Y-%m-%d}<br>order classified %{y:.1f}%<br>",
-          "composition n = %{customdata}<extra></extra>"
+          "%{x|%Y-%m-%d}<br>identified to order %{y:.1f}%<br>",
+          "%{text}<extra></extra>"
         )
       ) %>%
       plotly_theme() %>%
@@ -573,7 +730,8 @@ server <- function(input, output, session) {
       "mean_sample_density_m2", "se_sample_density_m2",
       "mean_sample_taxa_observed", "mean_sample_ept_taxa_observed",
       "mean_sample_pct_ept_of_all_estimated_count",
-      "mean_sample_pct_order_classified_estimated_count"
+      "mean_sample_pct_order_classified_estimated_count",
+      "n_field_flagged", "field_dataQF_values"
     )
     data[, keep, drop = FALSE]
   })
@@ -594,22 +752,23 @@ server <- function(input, output, session) {
   output$taxonDenominators <- renderUI({
     taxa <- selected_taxa()
     stratum <- rv$strata[rv$strata$stratum_key == input$taxonStratum, , drop = FALSE]
-    if (!nrow(stratum)) return(div(class = "denominator-note", "Stratum unavailable."))
+    if (!nrow(stratum)) return(div(class = "denominator-note",
+                                   tags$span("Stratum unavailable.")))
     order_support <- stratum$mean_sample_pct_order_classified_estimated_count[[1L]]
     div(
       class = "denominator-note taxon-boundary", bs_icon("info-circle-fill"),
-      HTML(sprintf(
+      tags$span(HTML(sprintf(
         paste0(
           "<b>%s</b> taxon rows · support denominator <b>%s count-eligible samples</b> · ",
           "density denominator <b>%s samples with usable area</b> · ",
-          "mean order-classified composition <b>%s</b>. ",
+          "mean share identified to order <b>%s</b>. ",
           "A missing taxonomy record is unknown; it is never zero-filled."
         ),
         inv_value(nrow(taxa)), inv_value(stratum$n_count_samples[[1L]]),
         inv_value(stratum$n_density_samples[[1L]]),
         if (is.finite(num(order_support))) inv_value(order_support, 1L, "%") else
           "Unavailable"
-      ))
+      )))
     )
   })
 
@@ -618,7 +777,20 @@ server <- function(input, output, session) {
     head(taxa, n)
   }
 
+  # Say so when the top-24 charts hide part of the stratum's taxon list.
+  truncation_note <- function(p, n_total, n_shown = 24L) {
+    if (n_total <= n_shown) return(p)
+    plotly::layout(p, annotations = list(list(
+      text = sprintf("Showing %d of %s taxa. The table below lists all of them.",
+                     n_shown, inv_value(n_total)),
+      xref = "paper", yref = "paper", x = 0, y = 1.02,
+      xanchor = "left", yanchor = "bottom", showarrow = FALSE,
+      font = list(size = 12, color = if (is_dark()) "#8db4ba" else DDL$muted)
+    )))
+  }
+
   output$taxonSupportPlot <- renderPlotly({
+    n_total <- nrow(selected_taxa())
     taxa <- top_taxa(selected_taxa())
     if (!nrow(taxa)) return(note_plot("No positive taxon records in this stratum."))
     taxa$taxon_label <- factor(taxa$taxon_label, levels = rev(taxa$taxon_label))
@@ -636,12 +808,14 @@ server <- function(input, output, session) {
         xaxis = list(title = "Samples with positive count / count-eligible samples",
                      ticksuffix = "%", range = c(0, 100)),
         yaxis = list(title = ""), showlegend = FALSE
-      )
+      ) %>%
+      truncation_note(n_total)
   })
 
   output$taxonCountPlot <- renderPlotly({
     taxa <- selected_taxa()
     if (!nrow(taxa)) return(note_plot("No positive taxon records in this stratum."))
+    n_total <- nrow(taxa)
     taxa <- taxa[order(-num(taxa$total_estimated_count)), , drop = FALSE]
     taxa <- head(taxa, 24L)
     taxa$taxon_label <- factor(taxa$taxon_label, levels = rev(taxa$taxon_label))
@@ -659,7 +833,8 @@ server <- function(input, output, session) {
       plotly::layout(
         xaxis = list(title = "Expanded laboratory count sum", rangemode = "tozero"),
         yaxis = list(title = ""), showlegend = FALSE
-      )
+      ) %>%
+      truncation_note(n_total)
   })
 
   taxa_display <- reactive({
@@ -698,13 +873,20 @@ server <- function(input, output, session) {
 
   output$networkBoundary <- renderUI({
     data <- network_data()
+    keys <- c(attr(data, "x_key"), attr(data, "y_key"))
     div(
       class = "denominator-note compact-note", bs_icon("shield-check"),
-      sprintf(
-        "%s versus %s. These are effort/record counts; position does not imply ecological condition.",
-        inv_comparison_label(attr(data, "x_key")),
-        inv_comparison_label(attr(data, "y_key"))
-      )
+      tags$span(paste0(
+        sprintf(
+          "%s versus %s. These are sampling-effort and record counts. A site's position does not show its ecological condition.",
+          inv_comparison_label(keys[[1L]]), inv_comparison_label(keys[[2L]])
+        ),
+        if ("n_taxa_recorded" %in% keys) paste(
+          "", "Taxa recorded pools all years, habitats, and samplers, mixes",
+          "identification ranks, and is not adjusted for how many animals each",
+          "sample held, so it is not a richness comparison between sites."
+        ) else ""
+      ))
     )
   })
 
@@ -778,10 +960,10 @@ server <- function(input, output, session) {
     ))
     div(
       class = "denominator-note compact-note", bs_icon("info-circle"),
-      sprintf(
+      tags$span(sprintf(
         "%s exact-stratum records across %s sites. Support denominators stay attached to each row; rows are not combined into a site ranking.",
         inv_value(nrow(rows)), inv_value(length(unique(rows$siteID)))
-      )
+      ))
     )
   })
 
@@ -804,7 +986,7 @@ server <- function(input, output, session) {
     req(rv$opportunities)
     ledger <- inv_status_ledger(rv$opportunities)
     dt(ledger[c("label", "n", "meaning", "count_denominator",
-                "density_denominator")], page_length = 9L)
+                "density_denominator")], page_length = 10L, search = TRUE)
   })
 
   output$qcReconciliation <- renderUI({
@@ -885,13 +1067,13 @@ server <- function(input, output, session) {
     issue_count <- if (is.data.frame(issues)) nrow(issues) else 0L
     div(
       class = "denominator-note", bs_icon("flag"),
-      HTML(sprintf(
+      tags$span(HTML(sprintf(
         paste0(
           "The source-quality inventory contains <b>%s</b> entries and the contextual issue log contains <b>%s</b> rows. ",
-          "Field/per-sample <code>dataQF</code>, sorting checks, PDE/PTD, and taxonomy <code>qcChecked</code> are evidence for review—not automatic exclusion rules."
+          "Field/per-sample <code>dataQF</code>, sorting checks, PDE/PTD, and taxonomy <code>qcChecked</code> are evidence to review, not rules that remove rows."
         ),
         inv_value(source_count), inv_value(issue_count)
-      ))
+      )))
     )
   })
 
@@ -904,12 +1086,139 @@ server <- function(input, output, session) {
       ),
       stringsAsFactors = FALSE
     )))
-    dt(rows, page_length = 12L)
+    # NEON's pseudonymous technician hash stays in the bundle and contract; it
+    # is only left out of this on-screen table.
+    if (identical(input$qcLayer %||% "field", "per_sample")) {
+      rows <- rows[, setdiff(names(rows), "qcSortedBy"), drop = FALSE]
+    }
+    dt(rows, page_length = 12L, search = TRUE)
   })
+
+  # ---- processing-status flags (display, retain, explain) ----------------
+  # Each chip is one primary status at this site. Selecting a chip lists and
+  # downloads those field rows; no flag ever removes a row from any view.
+  qc_status_pick <- reactiveVal(NULL)
+  observeEvent(rv$site, qc_status_pick(NULL), ignoreNULL = FALSE)
+  observeEvent(input$qcStatusPick, {
+    pick <- as.character(input$qcStatusPick)
+    if (length(pick) != 1L || !pick %in% INV_RECORD_STATUS_LEVELS) return()
+    qc_status_pick(if (identical(qc_status_pick(), pick)) NULL else pick)
+  })
+
+  output$qcFlagChips <- renderUI({
+    req(rv$opportunities)
+    ledger <- inv_status_ledger(rv$opportunities)
+    ledger$n[is.na(ledger$n)] <- 0L
+    review <- ledger[!ledger$record_status %in%
+                       c("quantified_community", "reported_zero_count"), ]
+    if (!any(review$n > 0L)) {
+      return(div(
+        class = "qc-flag qc-flag-ok", role = "status", bs_icon("shield-check"),
+        tags$span("No processing-status flags at this site: every field row has usable counts.")
+      ))
+    }
+    chips <- ledger[ledger$n > 0L &
+                      ledger$record_status != "quantified_community", ]
+    selected <- qc_status_pick()
+    div(
+      class = "qc-flag-row", role = "group",
+      `aria-label` = "Processing-status flags",
+      lapply(seq_len(nrow(chips)), function(i) {
+        status <- chips$record_status[[i]]
+        on <- identical(selected, status)
+        tags$button(
+          type = "button",
+          class = paste0("qc-flag qc-flag-", chips$qc_level[[i]],
+                         " qc-flag-click", if (on) " is-selected" else ""),
+          `data-status` = status,
+          `aria-pressed` = if (on) "true" else "false",
+          title = chips$meaning[[i]],
+          tags$span(class = "qcf-title", chips$label[[i]]),
+          tags$span(class = "qcf-n", inv_value(chips$n[[i]]))
+        )
+      })
+    )
+  })
+
+  qc_status_rows <- reactive({
+    req(rv$opportunities)
+    status <- qc_status_pick()
+    if (is.null(status)) return(NULL)
+    rows <- inv_opportunity_export(rv$opportunities)
+    rows[as.character(rows$record_status) %in% status, , drop = FALSE]
+  })
+
+  output$qcStatusNote <- renderUI({
+    status <- qc_status_pick()
+    if (is.null(status)) return(NULL)
+    meta <- INV_STATUS_META[INV_STATUS_META$record_status == status, ]
+    rows <- qc_status_rows()
+    div(
+      class = "denominator-note compact-note", bs_icon("info-circle"),
+      tags$span(sprintf(
+        "%s: %s field rows. %s These rows stay in every view and download.",
+        meta$label, inv_value(if (is.null(rows)) 0L else nrow(rows)),
+        meta$meaning
+      ))
+    )
+  })
+
+  output$qcStatusTable <- DT::renderDT({
+    rows <- qc_status_rows()
+    if (is.null(rows)) return(dt(data.frame(
+      Note = "Select a flag above to list the field rows with that status.",
+      stringsAsFactors = FALSE
+    )))
+    dt(rows, page_length = 10L, search = TRUE)
+  })
+
+  output$qcStatusCsv <- downloadHandler(
+    filename = function() inv_safe_filename(
+      rv$site %||% "site", paste0("status-", qc_status_pick() %||% "none")
+    ),
+    content = function(file) {
+      rows <- qc_status_rows()
+      if (is.null(rows)) rows <- inv_opportunity_export(rv$opportunities)[0, ]
+      write.csv(rows, file, row.names = FALSE, na = "")
+    }
+  )
+
+  # Every opportunity that is not a quantified community or that carries any
+  # overlapping support flag, with the provisional review tier attached.
+  qc_report_rows <- reactive({
+    req(rv$opportunities)
+    rows <- inv_opportunity_export(rv$opportunities)
+    flag_columns <- intersect(c(
+      "processing_unknown", "taxonomy_count_unavailable", "count_issue",
+      "density_issue", "reported_zero_count",
+      "displayed_zero_percent_authoritative_estimate"
+    ), names(rows))
+    flag_hit <- rep(FALSE, nrow(rows))
+    for (column in flag_columns) {
+      value <- rows[[column]]
+      hit <- if (is.logical(value)) value %in% TRUE else
+        !is.na(value) & nzchar(trimws(as.character(value))) &
+          !toupper(trimws(as.character(value))) %in% c("FALSE", "0")
+      flag_hit <- flag_hit | hit
+    }
+    status <- as.character(rows$record_status)
+    out <- rows[status != "quantified_community" | flag_hit, , drop = FALSE]
+    out$qc_level <- INV_STATUS_META$qc_level[
+      match(as.character(out$record_status), INV_STATUS_META$record_status)
+    ]
+    out
+  })
+
+  output$qcReportCsv <- downloadHandler(
+    filename = function() inv_safe_filename(rv$site %||% "site", "qc-report"),
+    content = function(file) write.csv(qc_report_rows(), file,
+                                       row.names = FALSE, na = "")
+  )
 
   output$opportunityTable <- DT::renderDT({
     req(rv$opportunities)
-    dt(inv_opportunity_export(rv$opportunities), page_length = 15L)
+    dt(inv_opportunity_export(rv$opportunities), page_length = 15L,
+       search = TRUE)
   })
 
   output$metricContractTable <- DT::renderDT({

@@ -206,3 +206,28 @@ if (window.jQuery) {
   jQuery(document).on("shiny:sessioninitialized", invRegisterHandlers);
   jQuery(document).one("shiny:idle", invRegisterHandlers);
 }
+
+// ---- 2026-10 audit: QC processing-status flag chips ----------------------
+// One delegated handler for the QC flag chips rendered by output$qcFlagChips.
+// Chips are native buttons, so Enter and Space already fire click; the keydown
+// path covers any non-button .qc-flag-click element. The server validates the
+// value against the known status levels and toggles the selection.
+(function () {
+  function pickQcStatus(el) {
+    if (!el || !window.Shiny || !Shiny.setInputValue) return;
+    var status = el.getAttribute("data-status");
+    if (!status) return;
+    Shiny.setInputValue("qcStatusPick", status, { priority: "event" });
+  }
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest && e.target.closest(".qc-flag-click");
+    if (el) pickQcStatus(el);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var el = e.target.closest && e.target.closest(".qc-flag-click");
+    if (!el || el.tagName === "BUTTON") return;
+    e.preventDefault();
+    pickQcStatus(el);
+  });
+})();
