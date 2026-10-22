@@ -129,6 +129,17 @@ INV_STATUS_META <- data.frame(
   ),
   count_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
   density_denominator = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE),
+  # Display-only. One colour per status, keyed by record_status so a status
+  # keeps its colour in every chart and at every site.
+  color = c(
+    "#9aa8ac", "#7c8f95", "#8b6e4f", "#8b6b9c", "#d87858",
+    "#d4a13a", "#c97654", "#a35d7a", "#0e8f9c", "#3f9e6e"
+  ),
+  # Provisional review tiers for the QC flag chips. A tier never removes a row.
+  qc_level = c(
+    "info", "info", "info", "warn", "warn",
+    "high", "high", "high", "info", "ok"
+  ),
   stringsAsFactors = FALSE
 )
 
@@ -1317,7 +1328,7 @@ inv_comparison_choices <- c(
   n_density_samples = "Density-eligible samples",
   n_reported_zero_count = "Reported zero-count samples",
   n_unstratifiable = "Opportunities with unavailable stratum fields",
-  n_taxa_recorded = "Distinct mixed-rank taxa recorded",
+  n_taxa_recorded = "Mixed-rank taxa recorded",
   n_sampling_impractical = "Sampling-impractical opportunities",
   n_processing_unknown = "Field opportunities with unknown processing outcome",
   n_processed_no_taxonomy =
@@ -1329,4 +1340,19 @@ inv_comparison_choices <- c(
 
 inv_comparison_label <- function(key) {
   unname(inv_comparison_choices[[key]]) %||% key
+}
+
+# UI only (needs htmltools/bsicons at runtime): save-with-pins and clear-pins
+# buttons above a pinnable chart (www/pincards.js).
+inv_pin_toolbar <- function(box_id, file_name) {
+  div(
+    class = "smt-toolbar",
+    tags$button(class = "smt-snap-btn", type = "button",
+                onclick = sprintf("smtSaveBox('%s','%s')", box_id, file_name),
+                bs_icon("camera-fill"), " Save image with pinned cards"),
+    tags$button(class = "smt-clear-btn", type = "button",
+                onclick = "smtClearPins()",
+                bs_icon("eraser-fill"), " Clear pins"),
+    tags$span(class = "smt-hint", "Select a mark to pin its card.")
+  )
 }

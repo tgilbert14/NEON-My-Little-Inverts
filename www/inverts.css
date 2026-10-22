@@ -678,3 +678,88 @@ body {
   .hero-stat { padding: 10px 8px; }
   .hero-stat .hs-l { font-size: 10px; letter-spacing: 0; hyphens: auto; }
 }
+||||||| 42f1616
+
+/* ---- 2026-10 audit: pin cards, QC flags, chart notes ---- */
+
+/* Denominator notes: one text child, so phones never split it into columns. */
+.denominator-note > span { flex: 1 1 auto; min-width: 0; }
+
+/* One-line captions under the strata charts. */
+.chart-caption { margin: 6px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+/* Pin cards (base rules restored from the pre-Pass-9 styles.css and re-themed
+   to the ink card + aqua edge used by the overrides near the top of this file).
+   The pinnable box is the positioning context for pins and the leader lines. */
+.smt-pinnable { position: relative; }
+svg.smt-pin-lines {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; overflow: visible; z-index: 5;
+}
+.smt-pin {
+  position: absolute; z-index: 6; max-width: 250px;
+  color: #fff; border: 2px solid var(--aqua); border-radius: 10px;
+  padding: 9px 22px 12px 12px; font-size: 12.5px; line-height: 1.42;
+  box-shadow: 0 12px 32px rgba(7, 37, 42, 0.38);
+  cursor: grab; transform-origin: top left; touch-action: none;
+}
+.smt-pin:active { cursor: grabbing; }
+.smt-pin b { color: #fff; }
+.smt-pin-close {
+  position: absolute; top: 1px; right: 6px; background: none; border: none;
+  color: #bfe7ea; font-size: 18px; line-height: 1; cursor: pointer; padding: 2px;
+}
+.smt-pin-close:hover { color: #fff; }
+.smt-pin-close:focus-visible { outline: 2px solid #9fe1e7; outline-offset: 1px; border-radius: 4px; }
+.smt-pin-resize {
+  position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px;
+  cursor: nwse-resize; touch-action: none; opacity: 0.55;
+  background: linear-gradient(135deg, transparent 50%, var(--aqua) 50%);
+  border-radius: 0 0 8px 0;
+}
+.smt-pin-resize:hover { opacity: 1; }
+@keyframes smtPulse {
+  0%, 100% { box-shadow: 0 12px 32px rgba(7, 37, 42, 0.38); }
+  50% { box-shadow: 0 0 0 4px var(--aqua), 0 12px 32px rgba(7, 37, 42, 0.5); }
+}
+.smt-pin.smt-pulse { animation: smtPulse 0.5s ease 2; }
+.smt-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; }
+.smt-snap-btn, .smt-clear-btn {
+  display: inline-flex; align-items: center; gap: 6px; font-family: inherit;
+  border-radius: 8px; padding: 5px 12px; font-weight: 600; font-size: 12.5px; cursor: pointer;
+}
+.smt-snap-btn { background: var(--teal2); color: #fff; border: 1px solid var(--teal2); }
+.smt-snap-btn:hover { background: #085a63; }
+.smt-clear-btn { background: transparent; color: var(--ink2); border: 1px solid var(--line); }
+.smt-clear-btn:hover { background: var(--bg); }
+.smt-snap-btn:focus-visible, .smt-clear-btn:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+.smt-hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+[data-bs-theme="dark"] .smt-snap-btn { background: #0e8f9c; border-color: #0e8f9c; color: #04191c; }
+[data-bs-theme="dark"] .smt-snap-btn:hover { background: #2fc0cd; }
+@media (prefers-reduced-motion: reduce) { .smt-pin.smt-pulse { animation: none !important; } }
+@media (max-width: 620px) { .smt-hint { margin-left: 0; flex-basis: 100%; } }
+
+/* QC processing-status flag chips (reuse .qc-flag-high/warn/info/ok tones). */
+.qc-flag-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+button.qc-flag-click {
+  appearance: none; -webkit-appearance: none; font: inherit; text-align: left;
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  padding: 7px 11px; min-height: 36px; border-radius: 999px;
+  border: 1px solid var(--line); border-left-width: 4px;
+}
+.qc-flag-click .qcf-title { font-size: 13px; }
+.qc-flag-click .qcf-n { background: rgba(0, 0, 0, .62); }
+.qc-flag-click:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+.qc-flag-click.is-selected, .qc-flag-click[aria-pressed="true"] {
+  border-color: currentColor; box-shadow: 0 0 0 2px currentColor; font-weight: 700;
+}
+.qc-flag-click.is-selected .qcf-title::before,
+.qc-flag-click[aria-pressed="true"] .qcf-title::before { content: "\2713"; font-weight: 800; }
+.qc-flag-ok { align-items: center; font-size: 13px; font-weight: 600; margin: 4px 0 12px; }
+.qc-flag-ok > span { flex: 1 1 auto; min-width: 0; }
+[data-bs-theme="dark"] .qc-flag-high { background: #3a1d1c; color: #ffc9c4; }
+[data-bs-theme="dark"] .qc-flag-warn { background: #3a2a12; color: #ffd9a0; }
+[data-bs-theme="dark"] .qc-flag-info { background: #10343a; color: #bdeef3; }
+[data-bs-theme="dark"] .qc-flag-ok   { background: #12321f; color: #b8ecc9; }
+[data-bs-theme="dark"] .qc-flag-click .qcf-n { background: rgba(255, 255, 255, .88); color: #07151a; }
+@media (prefers-reduced-motion: reduce) { .qc-flag-click, .qc-flag-click:hover { transition: none; transform: none; } }

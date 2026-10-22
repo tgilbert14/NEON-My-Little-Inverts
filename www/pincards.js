@@ -1,21 +1,21 @@
 /* =========================================================================
-   pincards.js — tap-to-pin cards + export-with-pins for the Size Lab scatter.
+   pincards.js: tap-to-pin cards and save-with-pins for My Little Inverts.
+   Provenance: copied from NEON-Mosquito-Pulse@a2d0f80 (2026-06-22), then adapted for My Little Inverts.
 
-   Ported from the Big 12 Girth Index pin-card system (ggiraph) onto PLOTLY:
-   the same draggable/resizable navy card + gold leader line + html-to-image
-   "download with the pins baked in" — but the click is detected with plotly's
-   native `plotly_click` event and the card HTML rides in each point's
-   `customdata`, so there's no second rendering stack (the app stays plotly).
+   Four plotly charts are pinnable: the primary-status ledger, opportunities
+   through time, collection density by event, and EPT composition by event.
+   Selecting a mark reads the card HTML that the server put in that point's
+   `customdata` (escaped server-side, with a data-tag for de-duplication) and
+   pins a draggable, resizable card with a leader line to the mark.
 
-   The pins, the leader-line SVG layer, and the gold anchor dots all live INSIDE
-   the chart's `.smt-pinnable` box (not the plot div), so they travel with the
-   box and — crucially — get captured when html-to-image snapshots the box.
+   The pins, the leader-line SVG layer, and the anchor dots all live INSIDE the
+   chart's `.smt-pinnable` box (not the plot div), so they travel with the box
+   and are captured when html-to-image (vendored in www/vendor) snapshots it.
 
    Anchors are stored as DATA coordinates (not frozen pixels), so they reposition
-   correctly on resize / fullscreen / relayout. The plotly_click handler is
-   RE-attached on every (re)render: a Shiny+plotly re-render runs purge+newPlot
-   on the SAME div, which silently wipes gd.on() listeners — so a one-time bind
-   (the old __smtPinBound guard) left the chart dead after the first re-render.
+   correctly on resize, fullscreen, and relayout. The plotly_click handler is
+   re-attached on every (re)render: a Shiny+plotly re-render runs purge+newPlot
+   on the same div, which wipes gd.on() listeners.
    ========================================================================= */
 (function () {
   "use strict";
@@ -25,7 +25,7 @@
   function bgColor() {
     var dark = document.documentElement.getAttribute("data-bs-theme") === "dark" ||
                document.body.getAttribute("data-bs-theme") === "dark";
-    return dark ? "#1b1530" : "#fbfaff";
+    return dark ? "#0a1c20" : "#f8fdfd";
   }
 
   /* map a data point (dx, dy) to box-relative pixels via plotly's live axes, so
@@ -93,7 +93,7 @@
     var pin = document.createElement("div");
     pin.className = "smt-pin";
     pin.__box = box; pin.__key = key; pin.__dx = dx; pin.__dy = dy;
-    pin.innerHTML = "<button class='smt-pin-close' title='Close'>&times;</button>" + html;
+    pin.innerHTML = "<button class='smt-pin-close' type='button' title='Close card' aria-label='Close card'>&times;</button>" + html;
     pin.querySelectorAll("em.smt-pin-hint").forEach(function (em) {
       var br = em.previousElementSibling;
       if (br && br.tagName === "BR") br.remove();
@@ -181,7 +181,7 @@
     var dup = Array.prototype.find.call(box.querySelectorAll(".smt-pin"),
       function (p) { return p.__key === key; });
     if (dup) { dup.classList.remove("smt-pulse"); void dup.offsetWidth; dup.classList.add("smt-pulse"); return; }
-    /* anchor from the DATA point (not the finger): exact, and touch-safe — on
+    /* anchor from the DATA point (not the finger): exact, and touch-safe - on
        touch devices plotly's synthesized event has no usable clientX/Y */
     makePin(gd, box, html, pt.x, pt.y, key);
   }
@@ -195,14 +195,14 @@
     if (!gd.data || !gd.data.length) return "";
     // dedupe: the "★ viewing" highlight trace re-emits a tag already in the base
     // set, so a push-list would gain a duplicate token and falsely flip the
-    // signature — clearing pins every time the user selects a taxon/site. A set
+    // signature - clearing pins every time the user selects a taxon/site. A set
     // keeps the signature stable on select, and still changes when the plotted
     // entities genuinely change (new site / new metric filter -> new tags).
     var seen = {};
     gd.data.forEach(function (t) {
       if (!t.customdata) return;
       // a single-point trace (e.g. each per-bout marker on the EPT pulse) can
-      // arrive as a scalar string, not an array — coerce so .forEach is safe.
+      // arrive as a scalar string, not an array - coerce so .forEach is safe.
       var cd = Array.isArray(t.customdata) ? t.customdata : [t.customdata];
       cd.forEach(function (h) {
         var m = String(h).match(/data-tag='([^']+)'/); if (m) seen[m[1]] = 1;
@@ -211,7 +211,7 @@
     return Object.keys(seen).sort().join(",");
   }
 
-  /* (re)bind a plotly graph div. Safe to call repeatedly — it removes any prior
+  /* (re)bind a plotly graph div. Safe to call repeatedly - it removes any prior
      handler first. Clears pins when the underlying DATA changed (filter / select). */
   function bindPlot(gd) {
     if (!gd || typeof gd.on !== "function") return;
@@ -259,7 +259,11 @@
       allowOutsideClick: false, didOpen: function () { if (Swal.showLoading) Swal.showLoading(); } });
   }
   function toastDone(msg, isErr) {
-    if (typeof Swal === "undefined") return;
+    if (typeof Swal === "undefined") {
+      // This app does not load SweetAlert: errors still need to reach the reader.
+      if (isErr) window.alert(msg);
+      return;
+    }
     Swal.fire({ toast: true, position: "top-end", icon: isErr ? "error" : "success",
       title: msg, showConfirmButton: false, timer: 2200 });
   }
@@ -268,7 +272,11 @@
   }
   var saving = false;
   function snap(node, name, beforeEl) {
-    if (!node || typeof htmlToImage === "undefined" || saving) return;
+    if (!node || saving) return;
+    if (typeof htmlToImage === "undefined") {
+      toastDone("The image tool did not load. Reload the page and try again.", true);
+      return;
+    }
     saving = true;
     // force the plotly chart to its current size first (a tab that rendered while
     // hidden, or a just-toggled fullscreen, can leave a 0-sized / stale SVG)
@@ -282,47 +290,19 @@
           n.classList.contains("smt-pin-resize") || n.classList.contains("smt-snap-btn") ||
           n.classList.contains("smt-clear-btn"))); } })   // keep cards + leader lines; drop chrome buttons
         .then(function (url) { downloadUrl(url, name); toastDone("Saved ✓"); })
-        .catch(function () { toastDone("Render failed — try again", true); })
+        .catch(function () { toastDone("Render failed. Try again.", true); })
         .then(function () { saving = false; });
     }, 90);
   }
-  window.smtSaveScatter = function () { snap(document.getElementById("boardPin") || document.querySelector(".smt-pinnable"), "neon-inverts-taxa-board.png"); };
-  window.smtSaveClimate = function () { snap(document.getElementById("climatePin"), "neon-inverts-cross-site-gradient.png"); };
-  // generic: any .smt-pinnable box by id (the bout time-series charts use this)
+  // any .smt-pinnable box by id (the four pinnable charts use this)
   window.smtSaveBox = function (id, name) { var n = document.getElementById(id); if (n) snap(n, name); };
-  window.smtSaveQcCard = function () {
-    var node = document.getElementById("qcCardNode");
-    if (!node) return;
-    var short = node.getAttribute("data-short") || "qc";
-    snap(node, "neon-qc-" + short.replace(/[^A-Za-z0-9]+/g, "") + ".png");
-  };
-
-  /* tap (or keyboard-activate) a highlighted "Open QC history card" chip inside a
-     pinned card -> ask the server to select that individual + render its QC card */
-  function openChip(el) {
-    if (!el || !window.Shiny) return;
-    var tag = el.getAttribute("data-tag");
-    if (!tag) return;
-    // data-action="site" -> load that NEON site; default -> open a species profile
-    var input = el.getAttribute("data-action") === "site" ? "pickSite" : "qcCardRequest";
-    Shiny.setInputValue(input, tag, { priority: "event" });
-  }
-  document.addEventListener("click", function (e) {
-    var el = e.target.closest(".smt-open");
-    if (el) openChip(el);
-  });
-  document.addEventListener("keydown", function (e) {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    var el = e.target.closest && e.target.closest(".smt-open");
-    if (el) { e.preventDefault(); openChip(el); }
-  });
 
   document.addEventListener("DOMContentLoaded", function () {
     var mo = new MutationObserver(scanSoon);
     mo.observe(document.body, { childList: true, subtree: true });
     scan();
   });
-  /* re-bind/re-fit when the Size Lab tab becomes visible (plotly in a hidden tab
-     can render late, and a tab-show dispatches a resize that relayouts the plot) */
+  /* re-bind/re-fit when a tab becomes visible (plotly in a hidden tab can
+     render late, and a tab-show dispatches a resize that relayouts the plot) */
   document.addEventListener("shown.bs.tab", function () { setTimeout(scan, 80); });
 })();

@@ -185,7 +185,9 @@
 
 inv_report_pdf <- function(file, bundle, site_code, label) {
   grDevices::pdf(file, width = 8.5, height = 11, bg = "#f8fdfd",
-                 pointsize = 11)
+                 pointsize = 11,
+                 title = sprintf("NEON My Little Inverts \u00b7 %s field-first report",
+                                 if (length(site_code)) site_code[[1L]] else "site"))
   on.exit(grDevices::dev.off(), add = TRUE)
   if (is.null(bundle)) {
     graphics::par(mar = c(0, 0, 0, 0))

@@ -53,9 +53,9 @@ loaded_r <- paste(text[c("global.R", "ui.R", "server.R", "R/inv_helpers.R",
 # nonexistent icon before any candidate data is materialized or published.
 approved_bsicons_0_1_2 <- c(
   "123", "arrow-left-circle", "braces", "bug-fill", "calendar3",
-  "check2-square", "chevron-down", "circle-half", "clipboard-data",
+  "camera-fill", "check2-square", "chevron-down", "circle-half", "clipboard-data",
   "clock-history", "compass", "diagram-3", "exclamation-octagon-fill",
-  "eye", "file-earmark-pdf", "file-earmark-spreadsheet", "fingerprint",
+  "eraser-fill", "eye", "file-earmark-pdf", "file-earmark-spreadsheet", "fingerprint",
   "flag", "geo-alt-fill", "globe-americas", "graph-up", "info-circle",
   "info-circle-fill", "journal-text", "layers", "layers-half", "list-check",
   "list-ul", "pie-chart", "pin-map-fill", "question-circle",
@@ -755,5 +755,67 @@ broken_search$sites$n_opportunities <- 99L
 expect(!isTRUE(environment$inv_validate_search_index(
   broken_search, release_contract, site_index
 )), "search index with a different site table is rejected")
+
+# 2026-10 audit: status colours are keyed by record_status, one per status.
+status_meta <- environment$INV_STATUS_META
+expect(identical(status_meta$record_status, environment$INV_RECORD_STATUS_LEVELS),
+       "status metadata rows follow the record-status levels")
+expect(length(status_meta$color) == nrow(status_meta),
+       "every primary status has exactly one display colour")
+expect(all(grepl("^#[0-9A-Fa-f]{6}$", status_meta$color)),
+       "status colours are 7-character hex values")
+expect(!anyDuplicated(toupper(status_meta$color)),
+       "status colours are distinct")
+expect(all(status_meta$qc_level %in% c("ok", "info", "warn", "high")),
+       "every primary status has a known QC review tier")
+expect(!grepl('"#d4a13a", "#c97654", "#3f9e6e", "#0e8f9c"', server_text,
+              fixed = TRUE) &&
+         grepl("INV_STATUS_META$color[", server_text, fixed = TRUE) &&
+         grepl("stats::setNames(INV_STATUS_META$color, INV_STATUS_META$label)",
+               server_text, fixed = TRUE),
+       "status charts look up colours by status, not by position")
+
+# QC flags display, retain, and explain; they never filter a view.
+for (id in c("qcFlagChips", "qcStatusNote", "qcStatusTable", "qcStatusCsv",
+             "qcReportCsv")) {
+  expect(grepl(sprintf('"%s"', id), ui_text, fixed = TRUE) &&
+           grepl(sprintf("output$%s", id), server_text, fixed = TRUE),
+         sprintf("UI declares and server binds %s", id))
+}
+expect(grepl("input$qcStatusPick", server_text, fixed = TRUE) &&
+         grepl("%in% INV_RECORD_STATUS_LEVELS", server_text, fixed = TRUE) &&
+         grepl("Shiny.setInputValue(\"qcStatusPick\"", app_js, fixed = TRUE),
+       "QC chip picks go through one delegated handler and a validated input")
+expect(grepl('setdiff(names(rows), "qcSortedBy")', server_text, fixed = TRUE),
+       "the displayed per-sample QC table omits the technician hash")
+
+# Pin cards and the vendored image tool are loaded locally, never remotely.
+expect(grepl('asset_url("vendor/html-to-image/html-to-image.js")', ui_text,
+             fixed = TRUE) &&
+         grepl('asset_url("pincards.js")', ui_text, fixed = TRUE) &&
+         file.exists(path("www/vendor/html-to-image/html-to-image.js")) &&
+         file.exists(path("www/vendor/html-to-image/LICENSE")),
+       "pin cards and the vendored html-to-image script are loaded locally")
+for (pin in c("statusPin", "timelinePin", "densityPin", "compositionPin")) {
+  expect(grepl(sprintf('id = "%s"', pin), ui_text, fixed = TRUE),
+         sprintf("pinnable chart box %s is present", pin))
+}
+pincards_js <- paste(readLines(path("www/pincards.js"), warn = FALSE,
+                               encoding = "UTF-8"), collapse = "\n")
+expect(!grepl("smtSaveScatter|smtSaveClimate|smtSaveQcCard|qcCardRequest",
+              pincards_js),
+       "pincards.js carries no exports for inputs this app does not have")
+
+# Copy voice: no em dash in visible app strings.
+em_dash_hits <- function(file) {
+  lines <- readLines(path(file), warn = FALSE, encoding = "UTF-8")
+  code <- lines[!grepl("^\\s*(#|//|/?\\*)", lines)]
+  sum(grepl("\u2014|&mdash;|&#8212;|&#x2014;", code, perl = TRUE))
+}
+for (file in c("server.R", "R/inv_helpers.R", "R/report_pdf.R",
+               "www/pincards.js")) {
+  expect(em_dash_hits(file) == 0L,
+         sprintf("%s has no em dash on a non-comment line", file))
+}
 
 cat(sprintf("Loaded-app contract checks passed (%d checks).\n", checks))

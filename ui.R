@@ -69,7 +69,9 @@ ui <- bslib::page_fillable(
     tags$link(rel = "stylesheet", href = asset_url("styles.css")),
     tags$link(rel = "stylesheet", href = asset_url("inverts.css")),
     tags$link(rel = "stylesheet", href = asset_url("poster.css")),
-    tags$script(src = asset_url("app.js"))
+    tags$script(src = asset_url("app.js")),
+    tags$script(src = asset_url("vendor/html-to-image/html-to-image.js")),
+    tags$script(src = asset_url("pincards.js"))
   ),
   useShinyjs(),
   tags$a(class = "app-skip", href = "#site-picker-start",
@@ -191,17 +193,21 @@ ui <- bslib::page_fillable(
           card(
             full_screen = TRUE,
             card_head("diagram-3", "Primary processing-status ledger",
-              info_pop("One field row, one primary status",
-                p("Every non-metabarcoding field row remains visible in exactly one dominant processing state."),
-                p("Support flags can overlap that status. For example, a usable laboratory zero without benthic area has an area-unavailable primary status and a reported-zero support flag."),
-                p("Processed samples without taxonomy remain unknown; they are never converted to zero."))),
-            spin(plotlyOutput("overviewStatusPlot", height = "410px"))
+              info_pop("One row per planned sample",
+                p("Each sample NEON planned is one row, including samples that could not be collected. Each row has one main status."),
+                p("Support flags can overlap that status. For example, a sample the lab counted as zero but with no recorded sampled area gets the Area unavailable status and also the reported-zero flag."),
+                p("A processed sample with no taxonomy records stays unknown. It is never counted as zero."))),
+            inv_pin_toolbar("statusPin", "neon-inverts-status.png"),
+            div(class = "smt-pinnable", id = "statusPin",
+                spin(plotlyOutput("overviewStatusPlot", height = "410px")))
           ),
           card(
             full_screen = TRUE,
             card_head("calendar3", "Opportunities through time"),
             uiOutput("overviewTimelineNote"),
-            spin(plotlyOutput("overviewTimeline", height = "360px"))
+            inv_pin_toolbar("timelinePin", "neon-inverts-timeline.png"),
+            div(class = "smt-pinnable", id = "timelinePin",
+                spin(plotlyOutput("overviewTimeline", height = "360px")))
           )
         ),
         card(card_head("journal-text", "What this site record contains"),
@@ -233,16 +239,25 @@ ui <- bslib::page_fillable(
             card_head("rulers", "Collection density by event",
               info_pop("Density denominator",
                 p("Each point is the arithmetic mean of density-eligible samples in one exact stratum."),
-                p("The interval is the sample standard error when at least two density-eligible samples exist; it is not population uncertainty."))),
-            spin(plotlyOutput("stratumDensityPlot", height = "390px"))
+                p("The interval is the sample standard error when at least two density-eligible samples exist; it is not population uncertainty."),
+                p("Grey points rest on fewer than three samples: one sample has no interval, and an interval from two samples is unstable."))),
+            inv_pin_toolbar("densityPin", "neon-inverts-density.png"),
+            div(class = "smt-pinnable", id = "densityPin",
+                spin(plotlyOutput("stratumDensityPlot", height = "390px"))),
+            p(class = "chart-caption",
+              "Diamonds mark event strata where NEON flagged at least one sample. Grey points rest on fewer than three samples.")
           ),
           card(
             full_screen = TRUE,
             card_head("pie-chart", "Descriptive EPT composition by event",
               info_pop("Composition denominator",
                 p("The EPT share is averaged across positive-total count-eligible samples."),
-                p("Counts with unknown order stay in the denominator. Order-classified share is shown beside EPT as support for interpretation."))),
-            spin(plotlyOutput("stratumCompositionPlot", height = "390px"))
+                p("Counts with unknown order stay in the denominator. NEON identifies some animals only to class or phylum (ostracods, nematodes, flatworms, mites). None of these are insects, so they can never be EPT. The dotted line shows the share identified to order."))),
+            inv_pin_toolbar("compositionPin", "neon-inverts-composition.png"),
+            div(class = "smt-pinnable", id = "compositionPin",
+                spin(plotlyOutput("stratumCompositionPlot", height = "390px"))),
+            p(class = "chart-caption",
+              "Diamonds mark event strata where NEON flagged at least one sample.")
           )
         ),
         card(
@@ -276,12 +291,12 @@ ui <- bslib::page_fillable(
           col_widths = breakpoints(sm = 12, lg = c(6, 6)),
           card(
             full_screen = TRUE,
-            card_head("record-circle", "Sample support"),
+            card_head("record-circle", "Sample support (top 24 taxa)"),
             spin(plotlyOutput("taxonSupportPlot", height = "440px"))
           ),
           card(
             full_screen = TRUE,
-            card_head("123", "Expanded laboratory counts"),
+            card_head("123", "Expanded laboratory counts (top 24 taxa)"),
             spin(plotlyOutput("taxonCountPlot", height = "440px"))
           )
         ),
@@ -354,6 +369,21 @@ ui <- bslib::page_fillable(
                 )),
                 span(class = "scope-chip scope-site", bs_icon("eye"),
                      " Display, retain, explain"))),
+        card(
+          full_screen = TRUE,
+          card_head("flag", "Processing-status flags",
+            info_pop("How to use the flags",
+              p("Each chip is one primary status and its count at this site. Select a chip to list those field rows and download them."),
+              p("Flags are evidence for review. The app never removes a row because of a flag."))),
+          uiOutput("qcFlagChips"),
+          uiOutput("qcStatusNote"),
+          DT::DTOutput("qcStatusTable"),
+          div(class = "download-row",
+              downloadButton("qcStatusCsv", "Download selected status (CSV)",
+                             class = "btn-outline-dark btn-sm"),
+              downloadButton("qcReportCsv", "Download QC report (CSV)",
+                             class = "btn-outline-dark btn-sm"))
+        ),
         layout_columns(
           col_widths = breakpoints(sm = 12, lg = c(6, 6)),
           card(card_head("diagram-3", "Primary-status definitions"),
