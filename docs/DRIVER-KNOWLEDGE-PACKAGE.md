@@ -201,6 +201,25 @@ Pages and Connect must expose the release identity recomputed from the merge.
 Connect additionally needs a real bidirectional Shiny action. Do not map a public
 200 response to a commit without that receipt.
 
+### 7. A page function can swallow unknown arguments into the HTML
+
+`bslib::page_fillable()` has no `window_title` or `fillable` argument. Both fall
+into `...` and render as `<body>` attributes, so the served page had no
+`<title>` and no `lang` while every gate stayed green. Use `title =` and
+`lang = "en"`, and make the post-deploy smoke assert both in the served HTML.
+
+### 8. A copy gate must pin meaning, not punctuation
+
+The cover checker pinned the approved poster note byte for byte, em dash
+included, so it enforced the opposite of the suite's no-em-dash rule. Pin the
+caveat's words, and forbid the punctuation the copy voice bans.
+
+### 9. Source flags can reach the plotted point without a contract change
+
+The bundle already retains NEON's verbatim field `dataQF` by `sampleID`. Joining
+it to the opportunity ledger at runtime marks flagged event strata on the chart
+and in the strata CSV with no schema bump and no rebuild from the raw source.
+
 ## Driver updates on closure
 
 When the release closes, update the app-local handoff and the central register,

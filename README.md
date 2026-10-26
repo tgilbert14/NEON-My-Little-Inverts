@@ -1,5 +1,8 @@
 # NEON My Little Inverts
 
+[Live app](https://019ef4fb-c6c4-7ddf-2667-7e1021b2ef10.share.connect.posit.cloud/) ·
+[Landing cover](https://tgilbert14.github.io/NEON-My-Little-Inverts/)
+
 An unofficial R/Shiny explorer for NEON’s **Macroinvertebrate collection**
 (`DP1.20120.001`): aquatic invertebrates recorded in streams, rivers, and
 lake-bottom samples. It is part of the Desert Data Labs NEON series.
@@ -51,12 +54,21 @@ and a reported laboratory zero distinct.
   count sum, mixed identification rank, EPT membership, order-classification
   status, and separate count/density denominators.
 - A **Network effort** view containing opportunity, event, sample-eligibility,
-  processing-status, and mixed-rank record counts—no raw biological ranking.
+  processing-status, and mixed-rank record counts, with no raw biological
+  ranking.
 - **QC + provenance** tables with the complete opportunity ledger, metric
   contract, source receipt, reconciliation counts, and contextual source-quality
-  evidence. Source flags are displayed and retained; they are not automatic
-  row-exclusion rules.
-- CSV exports and a one-page field-first PDF report.
+  evidence. Each primary processing status is a clickable flag chip (mouse,
+  Enter, or Space) that lists its field rows, with a per-status CSV and a QC
+  report CSV. Source flags are displayed and retained; they are not automatic
+  row-exclusion rules. Event strata where NEON flagged a field sample are drawn
+  as diamonds on the strata charts, with the verbatim flag in the hover.
+- Pin cards on the Overview and Event strata charts (tap a point to pin it, then
+  save the chart with its pins as a PNG), a PNG camera on every chart, CSV
+  exports, and a one-page field-first PDF report.
+- A site-picker popup with **Explore this site** and **About this site**, one
+  browser-history entry per site you open (Back returns to the picker), and a
+  footer that names the NEON release, its DOI, and the latest collection date.
 - One content-addressed production identity binds the source receipt/artifact,
   34-bundle hash family, derived indexes, runtime files, Pages poster, and
   canonical Connect manifest. The app exposes that exact ID in its initial HTML;
@@ -114,6 +126,8 @@ available:
 - taxonomy: `qcChecked` and `dataQF`
 
 These fields are evidence for review, not an automatic exclusion policy.
+`qcSortedBy` is NEON's pseudonymous ID for the person who sorted a sample; it
+stays in the bundle for the validator but the app's QC table does not show it.
 
 ## Refresh and deployment
 
@@ -122,7 +136,16 @@ workflow rebuilds derived indexes from the committed site family. A fresh NEON
 download is manual (`workflow_dispatch` with `skip_download=false`) and must pass
 the source, science, candidate, and exact-head review gates before the restricted
 publisher can update the review branch. The automation cannot write directly to
-`main` or approve its own candidate. Manual fetches preserve one 90-day
+`main` or approve its own candidate. Only a run on `main` can publish to
+`automation/invert-data-refresh`; a dispatch from any other branch validates
+and uploads its candidate artifact but publishes nothing. When a validated
+branch is waiting and no review PR is open, the publisher opens or updates one
+issue labelled `data-refresh` so a person sees it.
+
+Every run first asks NEON's public product endpoint whether a newer release
+exists and whether the issue log has entries dated after the committed fetch.
+A newer release turns the weekly scheduled run red (a warning on other events);
+new issue-log entries are warnings in the run summary. Manual fetches preserve one 90-day
 raw-plus-evidence artifact even on contract drift; without the authoritative
 source receipt it can never enter candidate publication. A bounded, token-safe
 authentication preflight retries transport/429/5xx failures and distinguishes
@@ -135,12 +158,48 @@ package's exact official API base URL in its process-local namespace, which 4.0.
 otherwise leaves unset for a namespace-only call, and restores the prior field on
 exit. A transport failure cannot masquerade as fetched source data.
 
+## Release-bump procedure (RELEASE-2027 and later)
+
+NEON publishes a new release each January. The app stays on its pinned release
+until a person moves it; the weekly run goes red when a newer release appears.
+
+1. Change the release tag, DOI and citation object everywhere they are pinned:
+   `scripts/inv_source_contract.R` (`INV_RELEASE`, `INV_CITATION_OBJECT`),
+   `scripts/fetch_inv_all.R`, `scripts/build_inv_data.R`,
+   `scripts/inv_producer.R`, `scripts/inv_science_contract.R`,
+   `scripts/inv_release_verifier.R`, `scripts/write_release_identity.R`
+   (`RELEASE`, `DOI`, `CITATION_OBJECT`, `PRODUCTION_RELATIONS`),
+   `scripts/post_deploy_smoke.sh`, `global.R` (`NEON_RELEASE`, `NEON_DOI`),
+   `R/inv_helpers.R`, `scripts/check_loaded_app_contract.R`,
+   `.github/workflows/refresh-data.yml`, the cover's footer in
+   `docs/index.html`, `AGENTS.md`, this README, and the fixtures in
+   `scripts/test_inv_source_contract.R`, `scripts/test_inv_science_contract.R`,
+   `scripts/test_post_deploy_smoke.sh` and `scripts/test_release_identity.R`.
+2. Dispatch **Propose immutable NEON invert refresh** with `skip_download=false`
+   from a branch that carries step 1. Read the source receipt and relation
+   counts it reports, update the pinned relations, and re-baseline the frozen
+   headline oracle in `scripts/inv_headline_oracles.R` from the new validated
+   bundles only after the source, science and verifier gates pass.
+3. Update `docs/SCIENCE-CONTRACT.md` and `docs/EXPERT-REVIEW.md` if NEON changed
+   a field, a sampling protocol or the issue log in a way that touches the
+   estimand, then `docs/DATA-TAKEAWAYS.md` from the receipt-bound release.
+   Re-verify that every Insecta row still has an order before keeping the
+   "Assigned to an order" note that no unassigned count can be EPT.
+4. Open one reviewed PR whose head passes the validator, including the
+   exact-identity check. The merge is the deploy; then confirm the post-deploy
+   workflow proves the new release identity on Pages and Connect.
+
 ## Run locally
 
 ```r
 shiny::runApp(".")
 ```
 
-Use the locked runtime and dependencies recorded by the release workflow. Data:
-NEON Macroinvertebrate collection (`DP1.20120.001`). Not affiliated with NEON,
-Battelle, or the NSF. Built by Desert Data Labs in Tucson, Arizona.
+Use the locked runtime and dependencies recorded by the release workflow. The
+pin-card PNG export uses html-to-image (MIT), vendored byte for byte from
+NEON-Breeding-Birds@67b3b39 into `www/vendor/html-to-image/` with its licence, so
+the app loads no remote script. Data: NEON (National Ecological Observatory
+Network) Macroinvertebrate collection (`DP1.20120.001`), RELEASE-2026,
+[doi:10.48443/hp56-s582](https://doi.org/10.48443/hp56-s582), CC BY 4.0. Not
+affiliated with NEON, Battelle, or the NSF. Built by Desert Data Labs in Tucson,
+Arizona.
