@@ -219,6 +219,61 @@ validation.
 No unresolved P0, P1, or P2 scientific-contract finding remains at the reviewed
 source head.
 
+## 2026-10 suite-audit follow-up: display, copy and gates
+
+The NEON suite audit of 2026-10-18 found no P0 or P1 in this app. Its display,
+copy, provenance and gate findings were fixed with an aquatics review of the
+wording (2026-10-21). No estimator, eligibility rule, denominator, source
+reconciliation or bundle field changed; the 34 site bundles and the release
+contract are byte-unchanged.
+
+Public claims whose wording changed, meaning kept:
+
+1. The cover's "What am I looking at?" is plain language and keeps every
+   boundary: every non-DNA field record is kept, including planned samples
+   that could not be collected; a missing record is unknown, never zero, and
+   an animal not found may still be there; counts and densities are not
+   population sizes; taxa counts mix identification levels; EPT does not grade
+   stream health or water quality; sites are compared on effort and record
+   counts only; patterns do not establish causes.
+2. The poster note keeps its caveat with a comma in place of an em dash.
+3. The support line beside EPT share is now "Assigned to an order". Measured
+   over all 34 bundles, 0 of 64,217 Insecta rows lack an order; 99.5% of the
+   order-unassigned count is ostracods, nematodes, flatworms and mites, and a
+   few snails, mites and worms have no order in NEON's taxonomy. So no
+   unassigned count can be EPT in this release. This must be re-verified for
+   each new release.
+4. "Distinct taxa" became "taxa recorded at mixed identification ranks; a
+   family can appear beside its own genera", and the network caveat says taxa
+   recorded is pooled, mixed-rank and not adjusted for how much each site was
+   sampled, so it is not a richness comparison.
+5. NEON field `dataQF` values now mark event strata on the density and EPT
+   charts (diamonds), counted only among the samples behind each point and
+   joined on the field-row identity. "legacyData" (early paper forms) is shown
+   in the hover but not marked. Network-wide, 28 strata are marked on each
+   chart and 9 carry only the legacy note.
+6. Density points from fewer than three samples are grey; the note says one
+   sample has no error bar and an error bar from two samples is unreliable.
+7. The status popover and help text no longer imply reported zeros occur here
+   (0 of 7,198 opportunities); a fixture still proves the rule.
+
+QC flag tiers (aquatics): high only for `count_unavailable`; warn for
+`processing_unknown`, `processed_no_taxonomy`, `area_unavailable` and
+`density_unavailable`; info for the field-reality and reported-zero statuses.
+A tier never removes a row.
+
+New gate: `scripts/inv_headline_oracles.R` checks the five hero metrics against
+a table frozen from this release and against raw-row identities (verbatim field
+rows minus `.DNA`, distinct events, receipt totals 7,198 = 6,485 + 713), without
+the producer's rules.
+
+Deferred to an owner decision, because each changes the science contract and
+needs a rebuild from the raw source: `n_distinct_taxa` with an ambiguous-parent
+rule; `pct_insect_order_unresolved_estimated_count`; and whether a processed
+sample with no taxonomy rows is a reported zero. Open for investigation: ten
+per-sample rows carry the `dataQF` value "AHTEST" with no NEON definition; they
+are shown as retained evidence and never used to exclude a row.
+
 ## Production closure gates
 
 Candidate readiness is not production proof. Operational closure status is

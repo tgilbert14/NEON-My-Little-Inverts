@@ -14,7 +14,7 @@
   --pine: #123640;   --pine2: #1f5560;        /* primary text/heading -> deep teal-ink */
   --terra: #0e8f9c;  --gold: #e08a2b;  --gold-ink: #9c5d18;   /* teal primary + warm amber */
   --sky: #2bb7c4;    --green: #3f9e6e;        /* status/info hooks */
-  --ink: #102a33;    --ink2: #274a54;  --muted: #5d7c84;
+  --ink: #102a33;    --ink2: #274a54;  --muted: #4d6a72;
   --bg: #eef6f7;     --paper: #f8fdfd;  --line: #cfe4e6;       /* cool riffle paper */
   --shadow: rgba(14, 60, 70, 0.13);
   --teal: #0e8f9c;   --teal2: #0a6f7a;  --aqua: #2bb7c4;  --aqua-ink: #0a6f7a;
@@ -624,3 +624,152 @@ body {
   padding: 4px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; font-family: inherit; }
 .dt-go-btn:hover { background: var(--teal2, #0a6f7a); }
 @media (prefers-reduced-motion: reduce) { .dt-go-btn { transition: none; } }
+
+/* ---- 2026-10 audit: shell contrast, tap targets, phone tabs ---- */
+/* Contrast (light theme measured by axe). Inactive tab labels sit on the dark
+   card-header band; teal text uses the deeper #0a6f7a on light surfaces only. */
+.card-header .nav-tabs .nav-link:not(.active) { color: #c3d6db; }
+:root:not([data-bs-theme="dark"]) .select-panel .sp-head,
+:root:not([data-bs-theme="dark"]) .site-browse .sbs-label,
+:root:not([data-bs-theme="dark"]) .ddl-footer .custom-cta { color: #0a6f7a; }
+
+/* Map popup actions: two full-size buttons, no inline JS. */
+.picker-popup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.picker-popup .picker-popup-actions .btn { flex: 1 1 auto; min-height: 44px; margin-top: 0; }
+.picker-popup .btn-outline-secondary { color: var(--ink); background: var(--paper); }
+.picker-popup .btn-outline-secondary:hover { color: #102a33; }
+.site-facts { margin-bottom: 10px; font-size: 13.5px; }
+.site-facts th { font-weight: 600; color: var(--muted); width: 46%; }
+.site-facts-bio { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0; }
+
+/* About: suite cards with a main live-app link plus a small cover link. */
+.sib-card { flex-wrap: wrap; justify-content: space-between; }
+.sib-main { display: flex; gap: 11px; align-items: center; flex: 1 1 140px; min-width: 0;
+  min-height: 44px; color: inherit; text-decoration: none; }
+.sib-main:hover { color: inherit; }
+.sib-about { display: inline-block; padding: 12px 4px; font-size: 12px; font-weight: 600; color: #0a6f7a; }
+.sib-note { font-size: 12px; font-weight: 600; color: var(--muted); padding: 12px 4px; }
+.sib-about, .sib-note { flex: none; }
+[data-bs-theme="dark"] .sib-about { color: var(--aqua); }
+@media (max-width: 420px) {
+  .sibling-grid { grid-template-columns: 1fr; }
+}
+
+/* Tap targets: 44 px hit areas while the visible marks stay small. */
+.hero-title a { display: inline-flex; min-height: 44px; align-items: center; }
+.info-dot { min-width: 44px; min-height: 44px; margin-top: -11px; margin-bottom: -11px; }
+.card-header .info-dot:hover {
+  background: radial-gradient(circle, rgba(255, 255, 255, .16) 0 11px, transparent 11.5px);
+}
+.ddl-footer p a { display: inline-block; padding: 12px 0; }
+@media (max-width: 620px) {
+  .leaflet-touch .leaflet-bar a { width: 44px; height: 44px; line-height: 44px; }
+  .marker-cluster, .marker-cluster div { min-width: 44px; min-height: 44px; }
+}
+
+/* DataTables pagination wraps inside its card instead of pushing it wider on a
+   phone (the "Next" button overflowed the QC tables at 375 px). */
+.card-body div.dataTables_wrapper div.dataTables_paginate ul.pagination {
+  flex-wrap: wrap; white-space: normal; justify-content: center; row-gap: 4px;
+}
+@media (max-width: 576px) {
+  .card-body div.dataTables_wrapper div.dataTables_paginate { float: none; text-align: center; }
+  .card-body div.dataTables_wrapper div.dataTables_info { white-space: normal; }
+}
+
+/* Phone: one scrollable row of tabs (links stay focusable), a 3-up hero grid. */
+@media (max-width: 576px) {
+  .card-header .nav-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .card-header .nav-tabs::-webkit-scrollbar { display: none; }
+  .card-header .nav-tabs .nav-link { white-space: nowrap; }
+  .hero-grid { grid-template-columns: repeat(3, 1fr); }
+  .hs-icon { display: none; }
+  .hero-grid { gap: 8px; }
+  .hero-stat { padding: 10px 8px; }
+  .hero-stat .hs-l { font-size: 10px; letter-spacing: 0; hyphens: auto; }
+}
+||||||| 42f1616
+
+/* ---- 2026-10 audit: pin cards, QC flags, chart notes ---- */
+
+/* Denominator notes: one text child, so phones never split it into columns. */
+.denominator-note > span { flex: 1 1 auto; min-width: 0; }
+
+/* One-line captions under the strata charts. */
+.chart-caption { margin: 6px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+/* Pin cards (base rules restored from the pre-Pass-9 styles.css and re-themed
+   to the ink card + aqua edge used by the overrides near the top of this file).
+   The pinnable box is the positioning context for pins and the leader lines. */
+.smt-pinnable { position: relative; }
+svg.smt-pin-lines {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; overflow: visible; z-index: 5;
+}
+.smt-pin {
+  position: absolute; z-index: 6; max-width: 250px;
+  color: #fff; border: 2px solid var(--aqua); border-radius: 10px;
+  padding: 9px 22px 12px 12px; font-size: 12.5px; line-height: 1.42;
+  box-shadow: 0 12px 32px rgba(7, 37, 42, 0.38);
+  cursor: grab; transform-origin: top left; touch-action: none;
+}
+.smt-pin:active { cursor: grabbing; }
+.smt-pin b { color: #fff; }
+.smt-pin-close {
+  position: absolute; top: 1px; right: 6px; background: none; border: none;
+  color: #bfe7ea; font-size: 18px; line-height: 1; cursor: pointer; padding: 2px;
+}
+.smt-pin-close:hover { color: #fff; }
+.smt-pin-close:focus-visible { outline: 2px solid #9fe1e7; outline-offset: 1px; border-radius: 4px; }
+.smt-pin-resize {
+  position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px;
+  cursor: nwse-resize; touch-action: none; opacity: 0.55;
+  background: linear-gradient(135deg, transparent 50%, var(--aqua) 50%);
+  border-radius: 0 0 8px 0;
+}
+.smt-pin-resize:hover { opacity: 1; }
+@keyframes smtPulse {
+  0%, 100% { box-shadow: 0 12px 32px rgba(7, 37, 42, 0.38); }
+  50% { box-shadow: 0 0 0 4px var(--aqua), 0 12px 32px rgba(7, 37, 42, 0.5); }
+}
+.smt-pin.smt-pulse { animation: smtPulse 0.5s ease 2; }
+.smt-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; }
+.smt-snap-btn, .smt-clear-btn {
+  display: inline-flex; align-items: center; gap: 6px; font-family: inherit;
+  border-radius: 8px; padding: 5px 12px; font-weight: 600; font-size: 12.5px; cursor: pointer;
+}
+.smt-snap-btn { background: var(--teal2); color: #fff; border: 1px solid var(--teal2); }
+.smt-snap-btn:hover { background: #085a63; }
+.smt-clear-btn { background: transparent; color: var(--ink2); border: 1px solid var(--line); }
+.smt-clear-btn:hover { background: var(--bg); }
+.smt-snap-btn:focus-visible, .smt-clear-btn:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+.smt-hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+[data-bs-theme="dark"] .smt-snap-btn { background: #0e8f9c; border-color: #0e8f9c; color: #04191c; }
+[data-bs-theme="dark"] .smt-snap-btn:hover { background: #2fc0cd; }
+@media (prefers-reduced-motion: reduce) { .smt-pin.smt-pulse { animation: none !important; } }
+@media (max-width: 620px) { .smt-hint { margin-left: 0; flex-basis: 100%; } }
+
+/* QC processing-status flag chips (reuse .qc-flag-high/warn/info/ok tones). */
+.qc-flag-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+button.qc-flag-click {
+  appearance: none; -webkit-appearance: none; font: inherit; text-align: left;
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  padding: 7px 11px; min-height: 36px; border-radius: 999px;
+  border: 1px solid var(--line); border-left-width: 4px;
+}
+.qc-flag-click .qcf-title { font-size: 13px; }
+.qc-flag-click .qcf-n { background: rgba(0, 0, 0, .62); }
+.qc-flag-click:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+.qc-flag-click.is-selected, .qc-flag-click[aria-pressed="true"] {
+  border-color: currentColor; box-shadow: 0 0 0 2px currentColor; font-weight: 700;
+}
+.qc-flag-click.is-selected .qcf-title::before,
+.qc-flag-click[aria-pressed="true"] .qcf-title::before { content: "\2713"; font-weight: 800; }
+.qc-flag-ok { align-items: center; font-size: 13px; font-weight: 600; margin: 4px 0 12px; }
+.qc-flag-ok > span { flex: 1 1 auto; min-width: 0; }
+[data-bs-theme="dark"] .qc-flag-high { background: #3a1d1c; color: #ffc9c4; }
+[data-bs-theme="dark"] .qc-flag-warn { background: #3a2a12; color: #ffd9a0; }
+[data-bs-theme="dark"] .qc-flag-info { background: #10343a; color: #bdeef3; }
+[data-bs-theme="dark"] .qc-flag-ok   { background: #12321f; color: #b8ecc9; }
+[data-bs-theme="dark"] .qc-flag-click .qcf-n { background: rgba(255, 255, 255, .88); color: #07151a; }
+@media (prefers-reduced-motion: reduce) { .qc-flag-click, .qc-flag-click:hover { transition: none; transform: none; } }

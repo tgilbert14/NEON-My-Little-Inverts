@@ -10,12 +10,16 @@ if (!requireNamespace("digest", quietly = TRUE))
   stop("digest is required to verify release hashes", call. = FALSE)
 
 source("scripts/inv_release_verifier.R", local = TRUE)
+source("scripts/inv_headline_oracles.R", local = TRUE)
 
 fail <- function(...) stop(sprintf(...), call. = FALSE)
 assert <- function(ok, ...) if (!isTRUE(ok)) fail(...)
 
 expected_sites <- INV_RELEASE_EXPECTED_SITES
 release_summary <- inv_verify_release_data(".")
+# Independent oracle: frozen hero metrics plus verbatim-row identities, never
+# recomputed with the producer or verifier rules they check.
+headline_summary <- inv_verify_headline_oracles(".")
 site_index <- readRDS("data/site_index.rds")
 
 baseline_args <- commandArgs(trailingOnly = TRUE)
@@ -181,4 +185,9 @@ cat(sprintf(
   release_summary$count_samples, release_summary$density_samples,
   release_summary$unstratifiable, release_summary$taxon_search_rows,
   paste(release_summary$source_stamp, collapse = ","), length(manifest_paths)
+))
+cat(sprintf(
+  "Headline oracles OK: %d sites match the frozen %s hero metrics; %d network field opportunities match the source receipt.\n",
+  headline_summary$sites, headline_summary$release,
+  headline_summary$network_opportunities
 ))

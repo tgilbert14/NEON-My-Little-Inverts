@@ -1,5 +1,52 @@
 # My Little Inverts — build/test handoff
 
+## 2026-10-26: 2026-10 suite-audit finish (America/Phoenix)
+
+### Scope and authority
+
+- Source branch `inverts/finish-audit-2026-10`, cut from `origin/main` at
+  `42f1616b604079d98dbeddfbe8521fdcd6d7cf2b` (the PR #11 merge). One review PR
+  from this branch; nothing merged or deployed by this session.
+- Fixes the NEON suite audit of 2026-10-18 for this app: its finish-ledger row,
+  the cross-cutting list and the appendix findings. Dispositions are in
+  `docs/project-status.md`; the public-claim changes are in
+  `docs/EXPERT-REVIEW.md`.
+- The science contract, estimators and all 34 site bundles are unchanged. The
+  validator rebuilt the 40 data files byte for byte.
+
+### Validated identity from the pinned validator
+
+- Dispatch run `40345082201` (`workflow_dispatch`, `skip_download=true`) on
+  source head `c9ae54aada7bc480fb7c929d7212636ff5d767d1`: `gate`,
+  `produce_candidate` and `validate_candidate` succeeded; `publish_candidate`
+  was skipped, as it now is for every dispatch off `main`.
+- From artifact `invert-refresh-c9ae54aada7bc480fb7c929d7212636ff5d767d1`, the
+  `manifest.json`, `release/production-identity.json` and `docs/release.json`
+  were committed byte for byte. The artifact's `data/` and `data-sample/` bytes
+  equal the committed ones (40 files).
+- Release identity
+  `sha256:a115575b9314eacdd979aa87d2f6d62577799fa76deff6383539d27d20e2dd8a`
+  (runtime payload `9f182cf6ffd0c7c900617161499f924e2e3d4b0ceaca512674387940426f0c3a`,
+  Pages payload `c4df18bbad7fe1b48e43d3cc7f985003dbd12ec4448fa4515b8f25109145d2bb`);
+  57 manifest files; terra 1.8-50; neonUtilities absent.
+- Local evidence on the same tree: identity verify mode and
+  `verify_refresh_candidate.R` passed (headline oracles included); the offline
+  family (143 source, 109 science, 43 producer, 64 release-verifier, 133
+  loaded-app checks), `npm run check:cover`, `test_release_identity.R`,
+  `test_post_deploy_smoke.sh`, actionlint and the hub lint (0 red, 0 yellow)
+  passed; an integrated Playwright round trip on the local app passed.
+
+### Next actions
+
+- The review PR's literal-head validator must pass; its stale-identity step
+  recomputes the three generated files and rejects any byte difference.
+- After the expected-head merge, **Verify My Little Inverts production** must
+  prove Pages and Connect expose
+  `sha256:a115575b9314eacdd979aa87d2f6d62577799fa76deff6383539d27d20e2dd8a`,
+  plus the new title, language and browser checks. The CARTO tile check warns
+  until `CARTO_BASEMAP_KEY` is set on the Connect content. Record the merge,
+  Pages and post-deploy run IDs here.
+
 ## 2026-08-05 — Cover badge removal source handoff (America/Phoenix)
 
 ### Scope and authority

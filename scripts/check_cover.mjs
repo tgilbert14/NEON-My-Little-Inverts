@@ -91,8 +91,8 @@ requireContract(Boolean(mainMatch), "Pages poster main must be the focusable #ma
 requireContract(/<html lang="en">/i.test(cover), "document language must be English");
 requireContract(/class="skip" href="#main"/.test(cover), "Pages cover needs a skip link to #main");
 requireContract(/<nav class="cover-nav" aria-label="NEON Explorer Suite">/.test(main), "suite navigation needs an accessible label");
-requireContract(count(main, /<a\b/g) === 2, "poster face must contain only the Driver route and live-app CTA");
-requireContract(count(main, /class="suite-jump"/g) === 1, "poster face must contain exactly one Driver route");
+requireContract(count(main, /<a\b/g) === 2, "poster face must contain only the Atlas route and live-app CTA");
+requireContract(count(main, /class="suite-jump"/g) === 1, "poster face must contain exactly one Atlas route");
 requireContract(count(main, /class="button"/g) === 1, "poster face must contain exactly one contextual CTA");
 requireContract(count(main, /<figure\b/g) === 1, "poster face needs one artwork");
 requireContract(count(main, /<figcaption\b/g) === 0, "Pages illustration badge must stay absent");
@@ -102,7 +102,7 @@ requireContract(/aria-label="What lives below the surface\?"/.test(main), "appro
 requireContract(/Explore the aquatic invertebrates NEON recorded in stream, river, and lake-bottom samples\./.test(main), "approved promise is missing");
 requireContract(/Choose an aquatic site/.test(main), "approved CTA is missing");
 requireContract(/href="https:\/\/019ef4fb-c6c4-7ddf-2667-7e1021b2ef10\.share\.connect\.posit\.cloud\/"/.test(main), "live-app CTA URL drifted");
-requireContract(count(main, /https:\/\/tgilbert14\.github\.io\/NEON-Driver-Cascade\//g) === 1, "Driver route is missing or duplicated");
+requireContract(count(main, /https:\/\/tgilbert14\.github\.io\/NEON-Driver-Cascade\//g) === 1, "Atlas route is missing or duplicated");
 requireContract(/inverts-living-poster-v2-840\.webp 840w, assets\/inverts-living-poster-v2\.webp 1672w/.test(main), "responsive poster WebP set is incomplete");
 requireContract(/inverts-living-poster-v2\.png" width="1672" height="941"/.test(main), "poster fallback lacks reviewed dimensions");
 requireContract(/fetchpriority="high" decoding="async"/.test(main), "poster artwork priority/decoding attributes drifted");
@@ -122,23 +122,38 @@ for (const retired of [
 
 // Footer honesty and metadata are compact and remain below the poster.
 requireContract(count(cover, /<details class="honesty">/g) === 1, "cover needs one collapsed honesty disclosure");
+// One assertion per scientific boundary, in the plain words the cover uses.
 requireContract(
-  /Every non-metabarcoding field opportunity is retained/i.test(cover)
-    && /Missing taxon rows remain unknown/i.test(cover)
-    && /not a verified zero or absence/i.test(cover),
-  "field-first opportunity/zero boundary is missing",
+  /Every NEON field record is kept, including planned samples that could not be collected; DNA samples are left out\./.test(cover)
+    && /A missing record is unknown and is never counted as zero, and an animal not found in a sample may still live there\./.test(cover),
+  "field-record/missing-is-never-zero/not-found-is-not-absent boundary is missing",
 );
 requireContract(
-  /density is a collection record, not population size/i.test(cover),
+  /Counts and densities describe what each sample collected; they are not population sizes\./.test(cover),
   "population boundary is missing",
 );
 requireContract(
-  /EPT composition is descriptive/i.test(cover)
-    && /not a water-quality rating/i.test(cover),
-  "rating boundary is missing",
+  /Taxa counts mix identification levels, so they are not species counts\./.test(cover),
+  "mixed-rank taxa boundary is missing",
 );
-requireContract(/descriptive, not causal/i.test(cover), "causal boundary is missing");
+requireContract(
+  /\(EPT\) describes the catch and does not grade stream health or water quality\./.test(cover),
+  "EPT rating boundary is missing",
+);
+requireContract(
+  /Sites are compared only on sampling effort and record counts/.test(cover),
+  "network effort-only boundary is missing",
+);
+requireContract(/the patterns shown do not establish causes\./.test(cover), "causal boundary is missing");
 requireContract(/Explore 34 aquatic sites/.test(cover) && /DP1\.20120\.001/.test(cover), "release scope or data product is missing");
+requireContract(
+  /NEON, the National Ecological Observatory Network, samples the same streams, rivers, and lakes year after year\./.test(cover),
+  "NEON expansion sentence is missing",
+);
+requireContract(
+  /release RELEASE-2026 \(DOI <a href="https:\/\/doi\.org\/10\.48443\/hp56-s582">10\.48443\/hp56-s582<\/a>\)/.test(cover),
+  "release RELEASE-2026 and its DOI are missing",
+);
 requireContract(/unofficial and not endorsed by NEON, Battelle, or the NSF/.test(cover), "independent-project boundary is missing");
 requireContract(/>Source<\/a>/.test(cover) && />Feedback<\/a>/.test(cover), "Source/Feedback links are missing");
 requireContract(/href="release\.json">Release receipt<\/a>/.test(cover), "public Pages release receipt link is missing");
@@ -188,8 +203,8 @@ requireContract(count(appPoster, /\bh1\(/g) === 1, "app poster must contain exac
 requireContract(/What lives below the surface\?/.test(appPoster), "app hook diverges from Pages");
 requireContract(/Explore the aquatic invertebrates NEON recorded in stream, river, and lake-bottom samples\./.test(appPoster), "app promise diverges from Pages");
 requireContract(/Choose an aquatic site/.test(appPoster), "app CTA diverges from Pages");
-requireContract(/Public NEON DP1\.20120\.001 · collection records—not verified zeros, population counts, or water-quality scores\./.test(appPoster), "app claim-boundary note drifted");
-requireContract(count(appPoster, /NEON-Driver-Cascade\//g) === 1, "app poster must contain exactly one Driver route");
+requireContract(/Public NEON DP1\.20120\.001 · collection records, not verified zeros, population counts, or water-quality scores\./.test(appPoster), "app claim-boundary note drifted");
+requireContract(count(appPoster, /NEON-Driver-Cascade\//g) === 1, "app poster must contain exactly one Atlas route");
 requireContract(/href = "#site-picker-start"/.test(appPoster), "app CTA must route to the picker");
 requireContract(/class = "app-skip", href = "#site-picker-start"/.test(ui), "app skip link must route to the picker");
 requireContract(/id = "site-picker-start", class = "picker-map-wrap", tabindex = "-1"/.test(firstImpression), "picker must be a focusable CTA target");
@@ -381,9 +396,52 @@ requireContract(browserOpenIndex >= 0
   && browserRosterIndex < browserSycaIndex,
 "post-deploy browser gate must open the suspended roster before checking and loading it");
 
+// Visible copy never uses em dashes: none anywhere in the Pages cover, and none
+// on non-comment lines of the app sources that render text.
+const emDashPattern = /\u2014|&mdash;|&#8212;|&#x2014;/i;
+const emDashSources = [
+  ["docs/index.html", "all"],
+  ["ui.R", "r"],
+  ["server.R", "r"],
+  ["global.R", "r"],
+  ["R/inv_helpers.R", "r"],
+  ["R/report_pdf.R", "r"],
+  ["www/app.js", "js"],
+  ["www/pincards.js", "js"],
+];
+// A comment line starts (after blanks) with # in R, or with //, /* or * in JS.
+// JS lines inside an open /* ... */ block also count as comment lines.
+function isCommentLine(line, kind, inBlock) {
+  const trimmed = line.trimStart();
+  if (kind === "r") return trimmed.startsWith("#");
+  if (kind === "js") {
+    return inBlock
+      || trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*");
+  }
+  return false;
+}
+for (const [path, kind] of emDashSources) {
+  if (!existsSync(resolve(root, path))) {
+    errors.push(`em dash scan source is missing: ${path}`);
+    continue;
+  }
+  let inBlock = false;
+  read(path).split(/\r?\n/).forEach((line, index) => {
+    const comment = isCommentLine(line, kind, inBlock);
+    if (emDashPattern.test(line) && !comment) {
+      errors.push(`em dash in visible copy: ${path}:${index + 1}`);
+    }
+    if (kind === "js" && (inBlock || line.trimStart().startsWith("/*"))) {
+      const close = line.lastIndexOf("*/");
+      const open = line.lastIndexOf("/*");
+      inBlock = inBlock ? close < 0 || open > close : close < open;
+    }
+  });
+}
+
 // Responsive/accessibility contracts on the static face.
 requireContract(/\.button \{[\s\S]{0,160}min-height: 52px/.test(cover), "Pages CTA must be at least 52px high");
-requireContract(/\.suite-jump \{[\s\S]{0,160}min-height: 44px/.test(cover), "Pages Driver route must be at least 44px high");
+requireContract(/\.suite-jump \{[\s\S]{0,160}min-height: 44px/.test(cover), "Pages Atlas route must be at least 44px high");
 requireContract(/\.honesty summary \{[\s\S]{0,180}min-height: 44px/.test(cover), "Pages honesty disclosure must be at least 44px high");
 requireContract(/@media \(max-width: 700px\)/.test(cover), "Pages mobile seam is missing");
 requireContract(/@media \(max-width: 420px\) and \(max-height: 860px\)/.test(cover), "Pages short-phone seam is missing");

@@ -24,6 +24,8 @@ the product—not optional documentation.
 The complete estimand and edge-case rules are in
 `docs/SCIENCE-CONTRACT.md`. Update that file and its adversarial tests together
 whenever scientific meaning changes.
+Suite-wide rules live in `NEON-Driver-Cascade/docs/neonize-playbook.md`; the local
+`docs/neonize-playbook.md` is a pointer to it.
 
 ## Source and release authority
 
@@ -78,6 +80,39 @@ candidate, literal-head PR checks, expected-head merge, Pages identity, Connect
 identity, and a bidirectional Shiny browser round trip are all recorded in
 `docs/BUILD-TEST-HANDOFF.md`.
 
+## Validator lanes
+
+Every independent-validator lane reconstructs derived indexes and manifest,
+validates the allowlisted producer/committed receipt-and-bundle family, checks
+the loaded app, creates the content identity, and repeats the release verifier.
+Only the manual full-fetch lane additionally receives immutable raw bytes and
+independently replays raw-to-release reconciliation. A producer success is not
+sufficient in either lane.
+
+The normal fixture family is offline. A full raw replay is intentionally separate
+and must use a scoped temporary checkout so it cannot overwrite reviewed working
+tree data.
+
+## Change routing
+
+| Change | Minimum evidence |
+| --- | --- |
+| `docs/BUILD-TEST-HANDOFF.md` only | Link/placeholder scan and `git diff --check`; its exact path is the sole authored Pages file excluded from release identity |
+| Any other root `docs/*.md` | Link/placeholder scan, `git diff --check`, identity regeneration in the clean validator, and an exact candidate; a new raw fetch is not required when source/data are unchanged |
+| Poster/CSS/client JS | Cover check at desktop/mobile/reduced motion, client handler tests, release-identity test |
+| Shiny UI/server | Loaded-app contract, focused runtime test, browser round trip |
+| Science/eligibility | Science-contract version review, adversarial fixture, whole offline contract family, expert-review update |
+| Source/fetch | Real-class round trip, source fixtures, exact raw replay, no secret/body logging |
+| Bundle/manifest/release | Full producer, clean validator, deterministic second build, exact-head release workflow |
+
+The manifest, production identity and Pages receipt are generated only by the
+pinned validator. For a source change on a branch, dispatch **Propose immutable
+NEON invert refresh** on that branch with `skip_download=true`; a dispatch off
+`main` validates and uploads `invert-refresh-<sha>` but publishes nothing. Commit
+exactly the `manifest.json`, `release/production-identity.json` and
+`docs/release.json` from that artifact; the pull-request validator then
+recomputes them and rejects any byte difference.
+
 ## Change hygiene
 
 - Preserve unrelated work and useful historical evidence.
@@ -92,3 +127,20 @@ identity, and a bidirectional Shiny browser round trip are all recorded in
 - Do not claim production closure from an HTTP 200 alone. Both public hosts must
   expose the exact release identity, and Connect must complete a real server
   round trip.
+
+## Hard stops
+
+Stop rather than publish when any of the following is true:
+
+- source release, citation, artifact hash, schema, classes, or required rows do
+  not reconcile;
+- a fetch produced evidence but no authoritative source receipt;
+- one opportunity lacks a unique status or one practical opportunity lacks a
+  unique processing/count outcome;
+- count, density, zero, or taxon support cannot be reconstructed from primitive
+  evidence;
+- the 34-site roster, bundle allowlist, direct-parent relation, or exact reviewed
+  candidate is uncertain;
+- a build depends on a moving package lane or unpinned nonstandard remote;
+- release-family bytes differ on a deterministic replay; or
+- Pages and Connect do not expose the exact merge identity.

@@ -12,7 +12,7 @@ inverts_poster <- function() {
         tags$nav(class = "inv-poster-nav", `aria-label` = "NEON Explorer Suite",
           tags$a(class = "inv-poster-suite-link",
             href = "https://tgilbert14.github.io/NEON-Driver-Cascade/",
-            "Whole suite: ", tags$strong("Driver Cascade"),
+            "Whole suite: ", tags$strong("NEON Cross-Product Response Atlas"),
             tags$span(`aria-hidden` = "true", "↗")))),
       div(class = "inv-poster-app", "NEON My Little Inverts · unofficial"),
       h1(id = "inverts-poster-title", `aria-label` = "What lives below the surface?",
@@ -23,7 +23,7 @@ inverts_poster <- function() {
         onclick = "window.setTimeout(function(){var target=document.getElementById('site-picker-start');if(target){target.focus({preventScroll:true});}},0)",
         "Choose an aquatic site", tags$span(`aria-hidden` = "true", " ↓")),
       p(class = "inv-poster-note",
-        "Public NEON DP1.20120.001 · collection records—not verified zeros, population counts, or water-quality scores.")),
+        "Public NEON DP1.20120.001 · collection records, not verified zeros, population counts, or water-quality scores.")),
     tags$figure(class = "inv-poster-art",
       tags$picture(
         tags$source(
@@ -51,9 +51,8 @@ inverts_poster <- function() {
 
 ui <- bslib::page_fillable(
   theme = app_theme,
-  title = NULL,
-  window_title = "NEON My Little Inverts",
-  fillable = FALSE,
+  title = "NEON My Little Inverts",
+  lang = "en",
   tags$head(
     tags$meta(name = "ddl-app-ready", content = APP_RELEASE_MARKER),
     tags$meta(name = "ddl-release-instance", content = RELEASE_INSTANCE_ID),
@@ -70,7 +69,9 @@ ui <- bslib::page_fillable(
     tags$link(rel = "stylesheet", href = asset_url("styles.css")),
     tags$link(rel = "stylesheet", href = asset_url("inverts.css")),
     tags$link(rel = "stylesheet", href = asset_url("poster.css")),
-    tags$script(src = asset_url("app.js"))
+    tags$script(src = asset_url("app.js")),
+    tags$script(src = asset_url("vendor/html-to-image/html-to-image.js")),
+    tags$script(src = asset_url("pincards.js"))
   ),
   useShinyjs(),
   tags$a(class = "app-skip", href = "#site-picker-start",
@@ -100,15 +101,15 @@ ui <- bslib::page_fillable(
       div(id = "loadSite", class = "load-site"),
       div(class = "load-bar"),
       div(class = "load-note",
-          "Reading the opportunity ledger, exact strata, and taxon records.")
+          "Loading samples and taxa.")
     )
   ),
 
   if (isTRUE(NO_DATA)) div(
     class = "synth-banner", bs_icon("exclamation-octagon-fill"),
     tags$span(HTML(paste0(
-      "<b>No reviewed Pass-9 data bundle is available.</b> ",
-      "The app remains closed to legacy bundle shapes."
+      "<b>No site data is available.</b> ",
+      "This app needs the reviewed data bundle, which is missing."
     )))
   ),
 
@@ -192,17 +193,21 @@ ui <- bslib::page_fillable(
           card(
             full_screen = TRUE,
             card_head("diagram-3", "Primary processing-status ledger",
-              info_pop("One field row, one primary status",
-                p("Every non-metabarcoding field row remains visible in exactly one dominant processing state."),
-                p("Support flags can overlap that status. For example, a usable laboratory zero without benthic area has an area-unavailable primary status and a reported-zero support flag."),
-                p("Processed samples without taxonomy remain unknown; they are never converted to zero."))),
-            spin(plotlyOutput("overviewStatusPlot", height = "410px"))
+              info_pop("One row per field record",
+                p("Each NEON field record is one row, including planned samples that could not be collected (DNA samples are left out). Each row has one main status."),
+                p("Support flags can overlap that status. For example, a sample that could not be collected usually has no sampler recorded, so it shows Stratum fields unavailable and still keeps its sampling-impractical flag."),
+                p("A sample with no lab record, or with a lab record but no taxonomy, stays unknown. It is never counted as zero."))),
+            inv_pin_toolbar("statusPin", "neon-inverts-status.png"),
+            div(class = "smt-pinnable", id = "statusPin",
+                spin(plotlyOutput("overviewStatusPlot", height = "410px")))
           ),
           card(
             full_screen = TRUE,
             card_head("calendar3", "Opportunities through time"),
             uiOutput("overviewTimelineNote"),
-            spin(plotlyOutput("overviewTimeline", height = "360px"))
+            inv_pin_toolbar("timelinePin", "neon-inverts-timeline.png"),
+            div(class = "smt-pinnable", id = "timelinePin",
+                spin(plotlyOutput("overviewTimeline", height = "360px")))
           )
         ),
         card(card_head("journal-text", "What this site record contains"),
@@ -234,16 +239,25 @@ ui <- bslib::page_fillable(
             card_head("rulers", "Collection density by event",
               info_pop("Density denominator",
                 p("Each point is the arithmetic mean of density-eligible samples in one exact stratum."),
-                p("The interval is the sample standard error when at least two density-eligible samples exist; it is not population uncertainty."))),
-            spin(plotlyOutput("stratumDensityPlot", height = "390px"))
+                p("Error bars show one sample standard error when at least two samples have a usable density; they are not population uncertainty."),
+                p("Grey points rest on fewer than three such samples: one sample has no error bar, and an error bar from two samples is unreliable."))),
+            inv_pin_toolbar("densityPin", "neon-inverts-density.png"),
+            div(class = "smt-pinnable", id = "densityPin",
+                spin(plotlyOutput("stratumDensityPlot", height = "390px"))),
+            p(class = "chart-caption",
+              "Diamonds mark points where NEON flagged the collection of at least one sample; hover for the flag. Grey points rest on fewer than three samples with a usable density.")
           ),
           card(
             full_screen = TRUE,
             card_head("pie-chart", "Descriptive EPT composition by event",
               info_pop("Composition denominator",
                 p("The EPT share is averaged across positive-total count-eligible samples."),
-                p("Counts with unknown order stay in the denominator. Order-classified share is shown beside EPT as support for interpretation."))),
-            spin(plotlyOutput("stratumCompositionPlot", height = "390px"))
+                p("Animals with no assigned order still count in the total. Most were identified only to a broad group such as seed shrimp (ostracods), roundworms, flatworms, or mites; a few snails, mites, and worms have no order in NEON's taxonomy. In this release every insect has an order, so none of these can be EPT. The dotted line shows the share of counted animals assigned to an order."))),
+            inv_pin_toolbar("compositionPin", "neon-inverts-composition.png"),
+            div(class = "smt-pinnable", id = "compositionPin",
+                spin(plotlyOutput("stratumCompositionPlot", height = "390px"))),
+            p(class = "chart-caption",
+              "Diamonds mark points where NEON flagged the collection of at least one sample; hover for the flag.")
           )
         ),
         card(
@@ -277,12 +291,12 @@ ui <- bslib::page_fillable(
           col_widths = breakpoints(sm = 12, lg = c(6, 6)),
           card(
             full_screen = TRUE,
-            card_head("record-circle", "Sample support"),
+            card_head("record-circle", "Sample support (top 24 taxa)"),
             spin(plotlyOutput("taxonSupportPlot", height = "440px"))
           ),
           card(
             full_screen = TRUE,
-            card_head("123", "Expanded laboratory counts"),
+            card_head("123", "Expanded laboratory counts (top 24 taxa)"),
             spin(plotlyOutput("taxonCountPlot", height = "440px"))
           )
         ),
@@ -355,6 +369,21 @@ ui <- bslib::page_fillable(
                 )),
                 span(class = "scope-chip scope-site", bs_icon("eye"),
                      " Display, retain, explain"))),
+        card(
+          full_screen = TRUE,
+          card_head("flag", "Processing-status flags",
+            info_pop("How to use the flags",
+              p("Each chip is one primary status and its count at this site. Select a chip to list those field rows and download them."),
+              p("Flags are evidence for review. The app never removes a row because of a flag."))),
+          uiOutput("qcFlagChips"),
+          uiOutput("qcStatusNote"),
+          DT::DTOutput("qcStatusTable"),
+          div(class = "download-row",
+              downloadButton("qcStatusCsv", "Download selected status (CSV)",
+                             class = "btn-outline-dark btn-sm"),
+              downloadButton("qcReportCsv", "Download QC report (CSV)",
+                             class = "btn-outline-dark btn-sm"))
+        ),
         layout_columns(
           col_widths = breakpoints(sm = 12, lg = c(6, 6)),
           card(card_head("diagram-3", "Primary-status definitions"),
@@ -424,11 +453,23 @@ ui <- bslib::page_fillable(
         ),
         "desertdatalabs@gmail.com"
       )),
-    p(style = "font-size:12px;opacity:.85",
-      paste(
-        "Data: NEON Macroinvertebrate collection (DP1.20120.001).",
+    p(style = "font-size:12px",
+      HTML(paste(
+        "Data: NEON (National Ecological Observatory Network) Macroinvertebrate",
+        "collection (DP1.20120.001),",
+        "<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\"",
+        "rel=\"noopener\">CC BY 4.0</a>.",
         "Not affiliated with NEON, Battelle, or the NSF.",
         "An educational data-exploration tool."
-      ))
+      ))),
+    p(class = "ddl-provenance", style = "font-size:12px",
+      HTML(paste0(
+        if (!is.na(DATA_THROUGH))
+          paste0("NEON data through ", htmltools::htmlEscape(DATA_THROUGH), " · release ")
+        else "Release ",
+        htmltools::htmlEscape(NEON_RELEASE), " · DOI ",
+        "<a href=\"https://doi.org/", NEON_DOI, "\" target=\"_blank\" rel=\"noopener\">",
+        htmltools::htmlEscape(NEON_DOI), "</a>"
+      )))
   )
 )
