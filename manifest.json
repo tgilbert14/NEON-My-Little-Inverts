@@ -3218,28 +3218,28 @@
       "checksum": "aed1f762810e7e251d4d4afc9ba77c5b"
     },
     "global.R": {
-      "checksum": "debfeb5d0c40930c03ec4ad054cf2708"
+      "checksum": "c924e7565ab55a48b50ed69c4dff0084"
     },
     "R/inv_helpers.R": {
-      "checksum": "c1af3b39ab320fd7b9aaa5592eace4d3"
+      "checksum": "d7534612ea0d972167d52f903531bfe7"
     },
     "R/report_pdf.R": {
-      "checksum": "157e085d658bf6c6441dbeb1af16bd7c"
+      "checksum": "3dacd23ca753d3c3f86555a4392b2715"
     },
     "R/site_metadata.R": {
       "checksum": "c0ffd7ed477bce9c38e90d09338ee1a1"
     },
     "release/production-identity.json": {
-      "checksum": "2bc7e60ca69cfd0698847235c3b08969"
+      "checksum": "f76f762ce7b67c1e6e5bc99b4396af1b"
     },
     "server.R": {
-      "checksum": "7bdb38292ba5d32005a3c7fa63968909"
+      "checksum": "c0ff6efbb6acb69ff25da5b944e191b5"
     },
     "ui.R": {
-      "checksum": "2ecc71d16f13e7a36b901ae11c430491"
+      "checksum": "d81bb6f78f38f92f8b88d36f8d201507"
     },
     "www/app.js": {
-      "checksum": "1b45caea68fffbb579d9b39ff6fac63d"
+      "checksum": "d80c3fc19765780c56782000c5e70aec"
     },
     "www/assets/inverts-living-poster-v2-840.webp": {
       "checksum": "acfe353cf1c055fdd90e0359ae3c8e2d"
@@ -3251,16 +3251,22 @@
       "checksum": "e1acfd9d3aca6a89642dc5a076562e96"
     },
     "www/inverts.css": {
-      "checksum": "d36104daaa89eaecf70a743387d4f4c7"
+      "checksum": "c0778b7a2fda677cb21890f0b4399065"
     },
     "www/pincards.js": {
-      "checksum": "2a1dedcb088e9ce45a9e2179ce520a87"
+      "checksum": "f1a3092b489c3aedf9696ec51422c9e5"
     },
     "www/poster.css": {
       "checksum": "c29bb65d7e8bc75779aeb3cc26f78866"
     },
     "www/styles.css": {
-      "checksum": "7daaa6415f512f9e9614f21edc83a670"
+      "checksum": "d5bcc1283d4bfaef9c3879df337ac582"
+    },
+    "www/vendor/html-to-image/html-to-image.js": {
+      "checksum": "8c69fd08591f0c8b77996c381f40e5d3"
+    },
+    "www/vendor/html-to-image/LICENSE": {
+      "checksum": "3eeb2e7abce2370a4f5e29e4b46e28b0"
     }
   },
   "users": null
