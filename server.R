@@ -1282,7 +1282,7 @@ server <- function(input, output, session) {
     div(
       class = "denominator-note compact-note", bs_icon("info-circle"),
       tags$span(sprintf(
-        "%s: %s field rows. %s These rows stay in every view and download.",
+        "%s: %s field rows. %s They stay in the ledger and in every download; a flag never removes a row.",
         meta$label, inv_value(if (is.null(rows)) 0L else nrow(rows)),
         meta$meaning
       ))
@@ -1310,7 +1310,7 @@ server <- function(input, output, session) {
   )
 
   # Every opportunity that is not a quantified community or that carries any
-  # overlapping support flag, with the provisional review tier attached.
+  # overlapping support flag, with its review tier attached.
   qc_report_rows <- reactive({
     req(rv$opportunities)
     rows <- inv_opportunity_export(rv$opportunities)

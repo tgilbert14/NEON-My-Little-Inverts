@@ -667,6 +667,16 @@ body {
   .marker-cluster, .marker-cluster div { min-width: 44px; min-height: 44px; }
 }
 
+/* DataTables pagination wraps inside its card instead of pushing it wider on a
+   phone (the "Next" button overflowed the QC tables at 375 px). */
+.card-body div.dataTables_wrapper div.dataTables_paginate ul.pagination {
+  flex-wrap: wrap; white-space: normal; justify-content: center; row-gap: 4px;
+}
+@media (max-width: 576px) {
+  .card-body div.dataTables_wrapper div.dataTables_paginate { float: none; text-align: center; }
+  .card-body div.dataTables_wrapper div.dataTables_info { white-space: normal; }
+}
+
 /* Phone: one scrollable row of tabs (links stay focusable), a 3-up hero grid. */
 @media (max-width: 576px) {
   .card-header .nav-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
